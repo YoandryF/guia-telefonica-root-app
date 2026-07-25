@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/supabase_service.dart';
 import 'admin_panel_screen.dart';
 
@@ -15,6 +16,25 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
   final _supabase = SupabaseService();
   bool _cargando = false;
   bool _mostrarPassword = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _verificarSesion();
+  }
+
+  /// Si ya hay sesión activa, ir directo al panel
+  void _verificarSesion() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const AdminPanelScreen()),
+        );
+      });
+    }
+  }
 
   Future<void> _login() async {
     if (_emailCtrl.text.isEmpty || _passwordCtrl.text.isEmpty) return;
