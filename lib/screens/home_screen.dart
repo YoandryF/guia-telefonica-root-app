@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/contacto.dart';
 import '../services/local_database_service.dart';
 import '../services/supabase_service.dart';
+import '../services/update_service.dart';
 import 'agregar_contacto_screen.dart';
 import 'login_admin_screen.dart';
 
@@ -29,6 +30,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.initState();
     _cargarContactos();
     _sincronizar();
+    _verificarActualizacion();
+  }
+
+  Future<void> _verificarActualizacion() async {
+    final updateService = UpdateService();
+    final update = await updateService.checkForUpdate();
+    if (update != null && mounted) {
+      UpdateService.showUpdateDialog(context, update);
+    }
   }
 
   Future<void> _cargarContactos() async {
