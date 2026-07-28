@@ -34,10 +34,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _verificarActualizacion() async {
+    _buscarActualizacion(manual: false);
+  }
+
+  Future<void> _buscarActualizacion({bool manual = false}) async {
     final updateService = UpdateService();
     final update = await updateService.checkForUpdate();
-    if (update != null && mounted) {
+    if (!mounted) return;
+
+    if (update != null) {
       UpdateService.showUpdateDialog(context, update);
+    } else if (manual) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✅ Ya tienes la última versión')),
+      );
     }
   }
 
@@ -108,16 +118,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.sync),
-            tooltip: 'Sincronizar',
+            tooltip: 'Sincronizar contactos',
             onPressed: _sincronizar,
           ),
-          IconButton(
-            icon: const Icon(Icons.admin_panel_settings),
-            tooltip: 'Admin',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const LoginAdminScreen()),
-            ),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              switch (value) {
+                case 'admin':
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginAdminScreen()));
+                  break;
+                case 'update':
+                  _buscarActualizacion(manual: true);
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'update', child: ListTile(leading: Icon(Icons.system_update), title: Text('Buscar actualización'), dense: true)),
+              const PopupMenuItem(value: 'admin', child: ListTile(leading: Icon(Icons.admin_panel_settings), title: Text('Panel Admin'), dense: true)),
+            ],
           ),
         ],
       ),
