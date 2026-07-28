@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/contacto.dart';
 import '../services/supabase_service.dart';
+import 'contactos_list_screen.dart';
 
 class AdminPanelScreen extends StatefulWidget {
   const AdminPanelScreen({super.key});
@@ -43,28 +44,17 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
   Future<void> _aprobar(Contacto contacto) async {
     await _supabase.aprobarContacto(contacto.id);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('✅ ${contacto.nombreCompleto} aprobado')),
-    );
-    _cargarDatos();
-  }
-
-  Future<void> _rechazar(Contacto contacto) async {
-    final motivo = await _mostrarDialogoRechazo();
-    if (motivo == null) return;
-
-    await _supabase.rechazarContacto(contacto.id, motivo);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('❌ ${contacto.nombreCompleto} rechazado')),
+        SnackBar(content: Text('✅ ${contacto.nombreCompleto} aprobado')),
       );
     }
     _cargarDatos();
   }
 
-  Future<String?> _mostrarDialogoRechazo() async {
+  Future<void> _rechazar(Contacto contacto) async {
     final controller = TextEditingController();
-    return showDialog<String>(
+    final motivo = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Motivo de rechazo'),
@@ -75,13 +65,29 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text('Rechazar'),
-          ),
+          FilledButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const Text('Rechazar')),
         ],
       ),
     );
+
+    if (motivo == null || motivo.isEmpty) return;
+
+    await _supabase.rechazarContacto(contacto.id, motivo);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ ${contacto.nombreCompleto} rechazado')),
+      );
+    }
+    _cargarDatos();
+  }
+
+  void _irALista(String estado, String titulo) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ContactosListScreen(estado: estado, titulo: titulo),
+      ),
+    ).then((_) => _cargarDatos());
   }
 
   @override
@@ -90,10 +96,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       appBar: AppBar(
         title: const Text('🔐 Panel Admin'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _cargarDatos,
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _cargarDatos),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
@@ -110,27 +113,49 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  // Estadísticas
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _StatChip('✅', _stats['aprobados'] ?? 0, 'Aprobados'),
-                          _StatChip('⏳', _stats['pendientes'] ?? 0, 'Pendientes'),
-                          _StatChip('❌', _stats['rechazados'] ?? 0, 'Rechazados'),
-                        ],
+                  // Stats clickeables
+                  Row(
+                    children: [
+                      _StatCard(
+                        emoji: '✅',
+                        count: _stats['aprobados'] ?? 0,
+                        label: 'Aprobados',
+                        color: Colors.green,
+                        onTap: () => _irALista('aprobado', '✅ Aprobados'),
                       ),
-                    ),
+                      _StatCard(
+                        emoji: '⏳',
+                        count: _stats['pendientes'] ?? 0,
+                        label: 'Pendientes',
+                        color: Colors.orange,
+                        onTap: () => _irALista('pendiente', '⏳ Pendientes'),
+                      ),
+                      _StatCard(
+                        emoji: '❌',
+                        count: _stats['rechazados'] ?? 0,
+                        label: 'Rechazados',
+                        color: Colors.red,
+                        onTap: () => _irALista('rechazado', '❌ Rechazados'),
+                      ),
+                    ],
                   ),
 
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 24),
 
-                  // Pendientes
-                  Text(
-                    'Pendientes de aprobación (${_pendientes.length})',
-                    style: Theme.of(context).textTheme.titleMedium,
+                  // Pendientes rápidos
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Pendientes (${_pendientes.length})',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      if (_pendientes.length > 5)
+                        TextButton(
+                          onPressed: () => _irALista('pendiente', '⏳ Pendientes'),
+                          child: const Text('Ver todos →'),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 8),
 
@@ -142,7 +167,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       ),
                     )
                   else
-                    ..._pendientes.map((c) => Card(
+                    ..._pendientes.take(5).map((c) => Card(
                           margin: const EdgeInsets.only(bottom: 8),
                           child: Padding(
                             padding: const EdgeInsets.all(12),
@@ -151,7 +176,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                               children: [
                                 Text(
                                   c.nombreCompleto,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                                 ),
                                 const SizedBox(height: 4),
                                 Text('📱 ${c.telefono}'),
@@ -163,14 +188,14 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                                   children: [
                                     OutlinedButton.icon(
                                       onPressed: () => _rechazar(c),
-                                      icon: const Icon(Icons.close, color: Colors.red),
-                                      label: const Text('Rechazar'),
+                                      icon: const Icon(Icons.close, color: Colors.red, size: 18),
+                                      label: const Text('Rechazar', style: TextStyle(fontSize: 12)),
                                     ),
                                     const SizedBox(width: 8),
                                     FilledButton.icon(
                                       onPressed: () => _aprobar(c),
-                                      icon: const Icon(Icons.check),
-                                      label: const Text('Aprobar'),
+                                      icon: const Icon(Icons.check, size: 18),
+                                      label: const Text('Aprobar', style: TextStyle(fontSize: 12)),
                                     ),
                                   ],
                                 ),
@@ -185,21 +210,47 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   }
 }
 
-class _StatChip extends StatelessWidget {
+class _StatCard extends StatelessWidget {
   final String emoji;
   final int count;
   final String label;
+  final Color color;
+  final VoidCallback onTap;
 
-  const _StatChip(this.emoji, this.count, this.label);
+  const _StatCard({
+    required this.emoji,
+    required this.count,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(emoji, style: const TextStyle(fontSize: 24)),
-        Text('$count', style: Theme.of(context).textTheme.headlineSmall),
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
-      ],
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+            child: Column(
+              children: [
+                Text(emoji, style: const TextStyle(fontSize: 24)),
+                const SizedBox(height: 4),
+                Text(
+                  '$count',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+                Text(label, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

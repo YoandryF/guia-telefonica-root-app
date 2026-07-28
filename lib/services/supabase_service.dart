@@ -87,6 +87,34 @@ class SupabaseService {
     return (response as List).map((json) => Contacto.fromJson(json)).toList();
   }
 
+  Future<List<Contacto>> getContactosPorEstado(
+    String estado, {
+    int page = 0,
+    int limit = 20,
+    String? query,
+  }) async {
+    var request = _client
+        .from('contactos')
+        .select('*, categorias(nombre, icono)')
+        .eq('estado', estado)
+        .isFilter('deleted_at', null);
+
+    if (query != null && query.length >= 3) {
+      request = request.or(
+        'nombre.ilike.%$query%,'
+        'apellido.ilike.%$query%,'
+        'telefono.ilike.%$query%,'
+        'ci.ilike.%$query%',
+      );
+    }
+
+    final response = await request
+        .order('nombre')
+        .range(page * limit, (page + 1) * limit - 1);
+
+    return (response as List).map((json) => Contacto.fromJson(json)).toList();
+  }
+
   Future<void> aprobarContacto(String id) async {
     await _client.from('contactos').update({
       'estado': 'aprobado',
@@ -100,6 +128,17 @@ class SupabaseService {
       'estado': 'rechazado',
       'motivo_rechazo': motivo,
       'ultima_modificacion': DateTime.now().toIso8601String(),
+    }).eq('id', id);
+  }
+
+  Future<void> editarContacto(String id, Map<String, dynamic> datos) async {
+    datos['ultima_modificacion'] = DateTime.now().toIso8601String();
+    await _client.from('contactos').update(datos).eq('id', id);
+  }
+
+  Future<void> eliminarContacto(String id) async {
+    await _client.from('contactos').update({
+      'deleted_at': DateTime.now().toIso8601String(),
     }).eq('id', id);
   }
 
