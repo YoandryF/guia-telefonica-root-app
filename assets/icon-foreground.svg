@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108">
+  <!-- Fondo adaptativo Android -->
+  <rect width="108" height="108" fill="#0284c7"/>
+  
+  <!-- Nodo central: persona -->
+  <circle cx="54" cy="28" r="8" fill="white"/>
+  <path d="M 54 36 C 44 36 40 42 40 46 L 40 48 C 40 49 41 50 42 50 L 66 50 C 67 50 68 49 68 48 L 68 46 C 68 42 64 36 54 36 Z" fill="white"/>
+  
+  <!-- Nodos nivel 2 -->
+  <circle cx="34" cy="64" r="7" fill="#bae6fd"/>
+  <circle cx="74" cy="64" r="7" fill="#bae6fd"/>
+  
+  <!-- Nodos nivel 3 -->
+  <circle cx="22" cy="86" r="5" fill="#e0f2fe"/>
+  <circle cx="42" cy="86" r="5" fill="#e0f2fe"/>
+  <circle cx="66" cy="86" r="5" fill="#e0f2fe"/>
+  <circle cx="86" cy="86" r="5" fill="#e0f2fe"/>
+  
+  <!-- Conexiones -->
+  <line x1="54" y1="50" x2="34" y2="64" stroke="white" stroke-width="2.5" opacity="0.4"/>
+  <line x1="54" y1="50" x2="74" y2="64" stroke="white" stroke-width="2.5" opacity="0.4"/>
+  <line x1="34" y1="64" x2="22" y2="86" stroke="#bae6fd" stroke-width="1.8" opacity="0.4"/>
+  <line x1="34" y1="64" x2="42" y2="86" stroke="#bae6fd" stroke-width="1.8" opacity="0.4"/>
+  <line x1="74" y1="64" x2="66" y2="86" stroke="#bae6fd" stroke-width="1.8" opacity="0.4"/>
+  <line x1="74" y1="64" x2="86" y2="86" stroke="#bae6fd" stroke-width="1.8" opacity="0.4"/>
+</svg>
