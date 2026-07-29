@@ -50,7 +50,7 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
   }
 
   Future<void> _enviarSms() async {
-    final uri = Uri.parse('sms:${widget.contacto.telefono}');
+    final uri = Uri.parse('smsto:${widget.contacto.telefono}');
     if (await canLaunchUrl(uri)) await launchUrl(uri);
   }
 
@@ -182,14 +182,6 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detalle'),
-        actions: [
-          IconButton(
-            icon: Icon(_esFavorito ? Icons.star : Icons.star_border,
-                color: _esFavorito ? Colors.amber : null),
-            onPressed: _toggleFavorito,
-            tooltip: _esFavorito ? 'Quitar de favoritos' : 'Agregar a favoritos',
-          ),
-        ],
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -270,29 +262,28 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _compartir,
-                      icon: const Icon(Icons.share),
-                      label: const Text('Compartir'),
-                    ),
+                  _CircleAction(
+                    icon: Icons.share,
+                    color: theme.colorScheme.primary,
+                    onTap: _compartir,
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _guardarEnAgenda,
-                      icon: const Icon(Icons.contacts),
-                      label: const Text('Agenda'),
-                    ),
+                  _CircleAction(
+                    icon: Icons.person_add,
+                    color: Colors.teal,
+                    onTap: _guardarEnAgenda,
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _mostrarQR,
-                      icon: const Icon(Icons.qr_code),
-                      label: const Text('QR'),
-                    ),
+                  _CircleAction(
+                    icon: Icons.star,
+                    color: _esFavorito ? Colors.amber : Colors.grey,
+                    filled: _esFavorito,
+                    onTap: _toggleFavorito,
+                  ),
+                  _CircleAction(
+                    icon: Icons.qr_code,
+                    color: Colors.deepPurple,
+                    onTap: _mostrarQR,
                   ),
                 ],
               ),
@@ -307,7 +298,7 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Text('Información', style: theme.textTheme.titleSmall),
                       const SizedBox(height: 8),
@@ -403,6 +394,38 @@ class _AccionBtn extends StatelessWidget {
       label: Text(label, style: const TextStyle(fontSize: 11)),
       onPressed: onTap,
       visualDensity: VisualDensity.compact,
+    );
+  }
+}
+
+class _CircleAction extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final bool filled;
+  final VoidCallback onTap;
+
+  const _CircleAction({
+    required this.icon,
+    required this.color,
+    this.filled = false,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(30),
+      child: Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: filled ? color.withOpacity(0.2) : Colors.transparent,
+          border: Border.all(color: color.withOpacity(0.5), width: 1.5),
+        ),
+        child: Icon(icon, color: color, size: 24),
+      ),
     );
   }
 }
