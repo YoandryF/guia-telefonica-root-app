@@ -6,6 +6,7 @@ import '../services/local_database_service.dart';
 import '../services/supabase_service.dart';
 import '../services/update_service.dart';
 import 'agregar_contacto_screen.dart';
+import 'contacto_detalle_screen.dart';
 import 'login_admin_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -238,6 +239,10 @@ class _ContactoCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: ListTile(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => ContactoDetalleScreen(contacto: contacto)),
+        ),
         leading: CircleAvatar(
           child: Text(
             contacto.nombre[0].toUpperCase(),
