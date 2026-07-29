@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../models/contacto.dart';
 import '../services/local_database_service.dart';
+import '../services/supabase_service.dart';
 
 class ContactoDetalleScreen extends StatefulWidget {
   final Contacto contacto;
@@ -18,16 +19,25 @@ class ContactoDetalleScreen extends StatefulWidget {
 class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
   final _localDb = LocalDatabaseService();
   bool _esFavorito = false;
+  int _reportes = 0;
 
   @override
   void initState() {
     super.initState();
     _verificarFavorito();
+    _cargarReportes();
   }
 
   Future<void> _verificarFavorito() async {
     final fav = await _localDb.esFavorito(widget.contacto.id);
     setState(() => _esFavorito = fav);
+  }
+
+  Future<void> _cargarReportes() async {
+    try {
+      final count = await SupabaseService().getConteoReportes(widget.contacto.id);
+      setState(() => _reportes = count);
+    } catch (_) {}
   }
 
   Future<void> _toggleFavorito() async {
@@ -174,6 +184,78 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
     );
   }
 
+  Future<void> _reportar() async {
+    final motivos = [
+      {'value': 'numero_incorrecto', 'label': '📞 Número incorrecto'},
+      {'value': 'no_existe', 'label': '❌ Ya no existe'},
+      {'value': 'spam', 'label': '📢 Spam / Acoso'},
+      {'value': 'duplicado', 'label': '🔄 Duplicado'},
+      {'value': 'otro', 'label': '📋 Otro'},
+    ];
+
+    String? motivoSeleccionado;
+    final descripcionCtrl = TextEditingController();
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('⚠️ Reportar contacto'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ...motivos.map((m) => RadioListTile<String>(
+                title: Text(m['label']!, style: const TextStyle(fontSize: 14)),
+                value: m['value']!,
+                groupValue: motivoSeleccionado,
+                onChanged: (v) => setDialogState(() => motivoSeleccionado = v),
+                dense: true,
+              )),
+              const SizedBox(height: 8),
+              TextField(
+                controller: descripcionCtrl,
+                decoration: const InputDecoration(
+                  hintText: 'Descripción (opcional)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                maxLines: 2,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+            FilledButton(
+              onPressed: motivoSeleccionado == null ? null : () => Navigator.pop(ctx, true),
+              child: const Text('Reportar'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result != true || motivoSeleccionado == null) return;
+
+    final resp = await SupabaseService().reportarContacto(
+      contactoId: widget.contacto.id,
+      motivo: motivoSeleccionado!,
+      descripcion: descripcionCtrl.text.isNotEmpty ? descripcionCtrl.text : null,
+    );
+
+    if (mounted) {
+      if (resp['error'] == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('⚠️ Reporte enviado. Gracias por informar.')),
+        );
+        _cargarReportes();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${resp['error']}'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = widget.contacto;
@@ -219,6 +301,28 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
             ),
 
             const SizedBox(height: 16),
+
+            // Badge de reportes
+            if (_reportes >= 3)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_amber, color: Colors.red, size: 20),
+                      const SizedBox(width: 8),
+                      Text('Este contacto ha sido reportado $_reportes veces',
+                          style: const TextStyle(color: Colors.red, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
 
             // Teléfono
             _SeccionDato(
@@ -284,6 +388,11 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
                     icon: Icons.qr_code,
                     color: Colors.deepPurple,
                     onTap: _mostrarQR,
+                  ),
+                  _CircleAction(
+                    icon: Icons.warning_amber,
+                    color: Colors.red,
+                    onTap: _reportar,
                   ),
                 ],
               ),

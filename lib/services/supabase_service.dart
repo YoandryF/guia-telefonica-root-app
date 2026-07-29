@@ -174,6 +174,51 @@ class SupabaseService {
     };
   }
 
+  // === REPORTES ===
+
+  Future<Map<String, dynamic>> reportarContacto({
+    required String contactoId,
+    required String motivo,
+    String? descripcion,
+    String? dispositivoId,
+  }) async {
+    try {
+      await _client.from('reportes').insert({
+        'contacto_id': contactoId,
+        'motivo': motivo,
+        'descripcion': descripcion,
+        'reportado_desde': 'app',
+        'dispositivo_id': dispositivoId,
+      });
+      return {'error': null};
+    } catch (e) {
+      return {'error': e.toString()};
+    }
+  }
+
+  Future<int> getConteoReportes(String contactoId) async {
+    final response = await _client
+        .from('reportes')
+        .select()
+        .eq('contacto_id', contactoId)
+        .eq('estado', 'pendiente')
+        .count(CountOption.exact);
+    return response.count;
+  }
+
+  Future<List<Map<String, dynamic>>> getReportesPendientes() async {
+    final response = await _client
+        .from('reportes')
+        .select('*, contactos(nombre, apellido, telefono)')
+        .eq('estado', 'pendiente')
+        .order('fecha_reporte');
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  Future<void> desestimarReporte(String reporteId) async {
+    await _client.from('reportes').update({'estado': 'resuelto', 'fecha_resolucion': DateTime.now().toIso8601String()}).eq('id', reporteId);
+  }
+
   // === AUTH ADMIN ===
 
   Future<bool> loginAdmin(String email, String password) async {
