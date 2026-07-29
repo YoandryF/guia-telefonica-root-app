@@ -96,8 +96,11 @@ class SupabaseService {
     var request = _client
         .from('contactos')
         .select('*, categorias(nombre, icono)')
-        .eq('estado', estado)
         .isFilter('deleted_at', null);
+
+    if (estado != 'todos') {
+      request = request.eq('estado', estado);
+    }
 
     if (query != null && query.length >= 3) {
       request = request.or(

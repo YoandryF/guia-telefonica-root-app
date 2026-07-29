@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../models/contacto.dart';
 import '../services/supabase_service.dart';
 import 'contactos_list_screen.dart';
+import 'exportar_screen.dart';
+import 'importar_screen.dart';
 
 class AdminPanelScreen extends StatefulWidget {
   const AdminPanelScreen({super.key});
@@ -136,6 +138,29 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                         label: 'Rechazados',
                         color: Colors.red,
                         onTap: () => _irALista('rechazado', '❌ Rechazados'),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // Exportar / Importar
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExportarScreen())),
+                          icon: const Icon(Icons.file_download),
+                          label: const Text('Exportar'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ImportarScreen())),
+                          icon: const Icon(Icons.file_upload),
+                          label: const Text('Importar'),
+                        ),
                       ),
                     ],
                   ),
