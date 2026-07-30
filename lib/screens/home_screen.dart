@@ -23,6 +23,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   List<Contacto> _contactos = [];
   List<Contacto> _filtrados = [];
+  List<Map<String, dynamic>> _categorias = [];
+  String? _categoriaFiltro;
   bool _cargando = true;
   DateTime? _ultimaSync;
 
@@ -30,6 +32,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void initState() {
     super.initState();
     _cargarContactos();
+    _cargarCategorias();
     _sincronizar();
     _verificarActualizacion();
   }
@@ -88,19 +91,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
+  Future<void> _cargarCategorias() async {
+    try {
+      final cats = await _supabaseService.getCategorias();
+      setState(() => _categorias = cats);
+    } catch (_) {}
+  }
+
+
   void _filtrar(String query) {
     setState(() {
-      if (query.isEmpty) {
-        _filtrados = _contactos;
-      } else {
-        _filtrados = _contactos.where((c) {
-          final q = query.toLowerCase();
-          return c.nombre.toLowerCase().contains(q) ||
-              c.apellido.toLowerCase().contains(q) ||
-              c.telefono.contains(q) ||
-              (c.ci?.contains(q) ?? false);
-        }).toList();
+      var resultado = _contactos.toList();
+
+      // Filtro por categoría
+      if (_categoriaFiltro != null) {
+        resultado = resultado.where((c) => c.categoriaId == _categoriaFiltro).toList();
       }
+
+      // Filtro por texto
+      if (query.isNotEmpty) {
+        final q = query.toLowerCase();
+        resultado = resultado.where((c) =>
+            c.nombre.toLowerCase().contains(q) ||
+            c.apellido.toLowerCase().contains(q) ||
+            c.telefono.contains(q) ||
+            (c.ci?.contains(q) ?? false)).toList();
+      }
+
+      _filtrados = resultado;
     });
   }
 
@@ -167,6 +185,43 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               onChanged: _filtrar,
             ),
           ),
+
+
+          // Filtro por categoría
+          if (_categorias.isNotEmpty)
+            SizedBox(
+              height: 40,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: FilterChip(
+                      label: const Text('Todos'),
+                      selected: _categoriaFiltro == null,
+                      onSelected: (_) {
+                        setState(() => _categoriaFiltro = null);
+                        _filtrar(_searchController.text);
+                      },
+                    ),
+                  ),
+                  ..._categorias.map((cat) => Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: FilterChip(
+                      avatar: Text(cat['icono'] ?? '📋', style: const TextStyle(fontSize: 12)),
+                      label: Text(cat['nombre'] ?? '', style: const TextStyle(fontSize: 11)),
+                      selected: _categoriaFiltro == cat['id'],
+                      onSelected: (_) {
+                        setState(() => _categoriaFiltro = _categoriaFiltro == cat['id'] ? null : cat['id']);
+                        _filtrar(_searchController.text);
+                      },
+                    ),
+                  )),
+                ],
+              ),
+            ),
+
 
           // Info de sincronización
           if (_ultimaSync != null)
