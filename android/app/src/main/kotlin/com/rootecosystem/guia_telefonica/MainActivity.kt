@@ -1,5 +1,7 @@
 package com.rootecosystem.guia_telefonica
 
+import android.accounts.Account
+import android.accounts.AccountManager
 import android.content.ContentProviderOperation
 import android.content.ContentResolver
 import android.content.Intent
@@ -56,7 +58,17 @@ class MainActivity : FlutterActivity() {
 
     // === CONTACTOS ===
 
+    private fun ensureAccount() {
+        val am = AccountManager.get(this)
+        val account = Account("Guía Telefónica", "com.rootecosystem.guia_telefonica")
+        val accounts = am.getAccountsByType("com.rootecosystem.guia_telefonica")
+        if (accounts.isEmpty()) {
+            am.addAccountExplicitly(account, null, null)
+        }
+    }
+
     private fun syncContact(nombre: String, apellido: String, telefono: String, reportado: Boolean): String {
+        ensureAccount()
         val cr = contentResolver
         val displayName = if (reportado) "⚠️ $nombre $apellido (Reportado)" else "$nombre $apellido"
         val cleanPhone = telefono.replace("-", "").replace(" ", "")
