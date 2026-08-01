@@ -58,6 +58,21 @@ class LocalDatabaseService {
     await db.execute('CREATE INDEX idx_ca_nombre ON contactos_aprobados(nombre)');
     await db.execute('CREATE INDEX idx_ca_telefono ON contactos_aprobados(telefono)');
     await db.execute('CREATE INDEX idx_ca_ci ON contactos_aprobados(ci)');
+
+    await db.execute('''
+      CREATE TABLE recientes (
+        contacto_id TEXT PRIMARY KEY,
+        fecha_acceso TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE notas (
+        contacto_id TEXT PRIMARY KEY,
+        nota TEXT NOT NULL,
+        fecha TEXT NOT NULL
+      )
+    ''');
   }
 
   // === CONTACTOS ===
@@ -190,5 +205,53 @@ class LocalDatabaseService {
       whereArgs: [contactoId],
     );
     return result.isNotEmpty;
+  }
+
+  // === RECIENTES ===
+
+  Future<void> registrarAcceso(String contactoId) async {
+    final db = await database;
+    await db.insert(
+      'recientes',
+      {
+        'contacto_id': contactoId,
+        'fecha_acceso': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    // Mantener solo los últimos 10
+    await db.execute('''
+      DELETE FROM recientes WHERE contacto_id NOT IN (
+        SELECT contacto_id FROM recientes ORDER BY fecha_acceso DESC LIMIT 10
+      )
+    ''');
+  }
+
+  Future<List<String>> getRecientesIds() async {
+    final db = await database;
+    final maps = await db.query('recientes', orderBy: 'fecha_acceso DESC', limit: 5);
+    return maps.map((m) => m['contacto_id'] as String).toList();
+  }
+
+  // === NOTAS PRIVADAS ===
+
+  Future<String?> getNota(String contactoId) async {
+    final db = await database;
+    final result = await db.query('notas', where: 'contacto_id = ?', whereArgs: [contactoId]);
+    if (result.isEmpty) return null;
+    return result.first['nota'] as String;
+  }
+
+  Future<void> guardarNota(String contactoId, String nota) async {
+    final db = await database;
+    if (nota.trim().isEmpty) {
+      await db.delete('notas', where: 'contacto_id = ?', whereArgs: [contactoId]);
+    } else {
+      await db.insert('notas', {
+        'contacto_id': contactoId,
+        'nota': nota.trim(),
+        'fecha': DateTime.now().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
   }
 }

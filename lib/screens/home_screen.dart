@@ -24,6 +24,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   List<Contacto> _contactos = [];
   List<Contacto> _filtrados = [];
+  List<Contacto> _favoritos = [];
   List<Map<String, dynamic>> _categorias = [];
   String? _categoriaFiltro;
   bool _cargando = true;
@@ -60,9 +61,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     setState(() => _cargando = true);
     final contactos = await _localDb.getAllContactos();
     _ultimaSync = await _localDb.getUltimaSincronizacion();
+    final favIds = await _localDb.getFavoritosIds();
+    final favoritos = contactos.where((c) => favIds.contains(c.id)).toList();
     setState(() {
       _contactos = contactos;
       _filtrados = contactos;
+      _favoritos = favoritos;
       _cargando = false;
     });
   }
@@ -236,6 +240,94 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 'Última sync: ${_formatearFecha(_ultimaSync!)}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+            ),
+
+          // Favoritos
+          if (_favoritos.isNotEmpty && _searchController.text.isEmpty && _categoriaFiltro == null)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: Text('⭐ Favoritos', style: Theme.of(context).textTheme.titleSmall),
+                ),
+                SizedBox(
+                  height: 80,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    itemCount: _favoritos.length,
+                    itemBuilder: (ctx, i) {
+                      final c = _favoritos[i];
+                      return GestureDetector(
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ContactoDetalleScreen(contacto: c))),
+                        child: Container(
+                          width: 140,
+                          margin: const EdgeInsets.only(right: 8),
+                          child: Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(c.nombreCompleto, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  const SizedBox(height: 4),
+                                  Text('📱 ${c.telefono}', style: const TextStyle(fontSize: 11)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const Divider(),
+              ],
+            ),
+
+          // Favoritos
+          if (_favoritos.isNotEmpty && _searchController.text.isEmpty && _categoriaFiltro == null)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: Text('⭐ Favoritos', style: Theme.of(context).textTheme.titleSmall),
+                ),
+                SizedBox(
+                  height: 80,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    itemCount: _favoritos.length,
+                    itemBuilder: (ctx, i) {
+                      final c = _favoritos[i];
+                      return GestureDetector(
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ContactoDetalleScreen(contacto: c))).then((_) => _cargarContactos()),
+                        child: Container(
+                          width: 140,
+                          margin: const EdgeInsets.only(right: 8),
+                          child: Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(c.nombreCompleto, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  const SizedBox(height: 4),
+                                  Text(c.telefono, style: const TextStyle(fontSize: 11)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const Divider(),
+              ],
             ),
 
           // Lista de contactos

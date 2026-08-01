@@ -20,12 +20,15 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
   final _localDb = LocalDatabaseService();
   bool _esFavorito = false;
   int _reportes = 0;
+  String? _nota;
 
   @override
   void initState() {
     super.initState();
     _verificarFavorito();
     _cargarReportes();
+    _cargarNota();
+    _localDb.registrarAcceso(widget.contacto.id);
   }
 
   Future<void> _verificarFavorito() async {
@@ -38,6 +41,36 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
       final count = await SupabaseService().getConteoReportes(widget.contacto.id);
       setState(() => _reportes = count);
     } catch (_) {}
+  }
+
+  Future<void> _cargarNota() async {
+    final nota = await _localDb.getNota(widget.contacto.id);
+    setState(() => _nota = nota);
+  }
+
+  Future<void> _editarNota() async {
+    final controller = TextEditingController(text: _nota ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('📝 Nota privada'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(hintText: 'Ej: Cobra caro, pero trabaja bien...'),
+          maxLines: 4,
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          if (_nota != null)
+            TextButton(onPressed: () => Navigator.pop(ctx, ''), child: const Text('Eliminar', style: TextStyle(color: Colors.red))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const Text('Guardar')),
+        ],
+      ),
+    );
+    if (result == null) return;
+    await _localDb.guardarNota(widget.contacto.id, result);
+    _cargarNota();
   }
 
   Future<void> _toggleFavorito() async {
@@ -399,6 +432,39 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
             ),
 
             const SizedBox(height: 24),
+
+            // Nota privada
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: GestureDetector(
+                onTap: _editarNota,
+                child: Card(
+                  color: _nota != null ? Colors.amber.withOpacity(0.1) : null,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.sticky_note_2, size: 20, color: Colors.amber),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _nota ?? 'Agregar nota privada...',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: _nota != null ? null : Colors.grey,
+                              fontStyle: _nota != null ? FontStyle.normal : FontStyle.italic,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const Icon(Icons.edit, size: 16, color: Colors.grey),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
             // Info de registro
             Padding(

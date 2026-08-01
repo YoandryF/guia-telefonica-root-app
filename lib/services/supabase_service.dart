@@ -174,6 +174,27 @@ class SupabaseService {
     };
   }
 
+  // === VALORACIONES ===
+
+  Future<void> valorarContacto(String contactoId, int estrellas, String? dispositivoId) async {
+    await _client.from('valoraciones').upsert({
+      'contacto_id': contactoId,
+      'estrellas': estrellas,
+      'dispositivo_id': dispositivoId ?? 'unknown',
+    });
+  }
+
+  Future<double> getPromedioValoracion(String contactoId) async {
+    final response = await _client
+        .from('valoraciones')
+        .select('estrellas')
+        .eq('contacto_id', contactoId);
+    final list = List<Map<String, dynamic>>.from(response);
+    if (list.isEmpty) return 0;
+    final sum = list.fold<int>(0, (acc, r) => acc + (r['estrellas'] as int));
+    return sum / list.length;
+  }
+
   // === REPORTES ===
 
   Future<Map<String, dynamic>> reportarContacto({
