@@ -74,6 +74,27 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(response);
   }
 
+  Future<void> crearCategoria({required String nombre, String? icono, String? color}) async {
+    await _client.from('categorias').insert({
+      'nombre': nombre,
+      'icono': icono ?? '📋',
+      'color': color,
+      'activa': true,
+    });
+  }
+
+  Future<void> editarCategoria({required String id, required String nombre, String? icono, String? color}) async {
+    await _client.from('categorias').update({
+      'nombre': nombre,
+      'icono': icono,
+      'color': color,
+    }).eq('id', id);
+  }
+
+  Future<void> desactivarCategoria(String id) async {
+    await _client.from('categorias').update({'activa': false}).eq('id', id);
+  }
+
   // === ADMIN ===
 
   Future<List<Contacto>> getContactosPendientes() async {

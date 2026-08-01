@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/contacto.dart';
 import '../services/supabase_service.dart';
+import 'categorias_admin_screen.dart';
 import 'contactos_list_screen.dart';
 import 'exportar_screen.dart';
 import 'importar_screen.dart';
@@ -144,7 +145,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
                   const SizedBox(height: 24),
 
-                  // Exportar / Importar
+                  // Exportar / Importar / Categorías
                   Row(
                     children: [
                       Expanded(
@@ -163,6 +164,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CategoriasAdminScreen())),
+                    icon: const Icon(Icons.category),
+                    label: const Text('Gestionar categorías'),
                   ),
 
                   const SizedBox(height: 24),
