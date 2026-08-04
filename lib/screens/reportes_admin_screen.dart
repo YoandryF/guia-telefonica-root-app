@@ -12,13 +12,14 @@ class _ReportesAdminScreenState extends State<ReportesAdminScreen> with SingleTi
   final _supabase = SupabaseService();
   late TabController _tabCtrl;
   List<Map<String, dynamic>> _pendientes = [];
-  List<Map<String, dynamic>> _resueltos = [];
+  List<Map<String, dynamic>> _aprobados = [];
+  List<Map<String, dynamic>> _desestimados = [];
   bool _cargando = true;
 
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 2, vsync: this);
+    _tabCtrl = TabController(length: 3, vsync: this);
     _cargar();
   }
 
@@ -26,10 +27,12 @@ class _ReportesAdminScreenState extends State<ReportesAdminScreen> with SingleTi
     setState(() => _cargando = true);
     try {
       final pendientes = await _supabase.getReportesPendientes();
-      final resueltos = await _supabase.getReportesResueltos();
+      final aprobados = await _supabase.getReportesPorEstado('revisado');
+      final desestimados = await _supabase.getReportesResueltos();
       setState(() {
         _pendientes = pendientes;
-        _resueltos = resueltos;
+        _aprobados = aprobados;
+        _desestimados = desestimados;
         _cargando = false;
       });
     } catch (e) {
@@ -39,44 +42,67 @@ class _ReportesAdminScreenState extends State<ReportesAdminScreen> with SingleTi
   }
 
   Future<void> _desestimar(String reporteId) async {
+    final confirmar = await _confirmarAccion(
+      '✅ ¿Desestimar reporte?',
+      'El reporte se marcará como inválido y no contará para la advertencia del contacto.',
+    );
+    if (!confirmar) return;
     await _supabase.desestimarReporte(reporteId);
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Reporte desestimado')));
     _cargar();
   }
 
   Future<void> _aprobarReporte(String reporteId) async {
+    final confirmar = await _confirmarAccion(
+      '⚠️ ¿Aprobar reporte?',
+      'El reporte se marcará como válido. El contacto mantendrá la advertencia visible para todos los usuarios.',
+    );
+    if (!confirmar) return;
     await _supabase.aprobarReporte(reporteId);
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠️ Reporte aprobado — contacto mantiene advertencia')));
     _cargar();
   }
 
   Future<void> _eliminarReporte(String reporteId) async {
-    final confirmar = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('¿Eliminar reporte?'),
-        content: const Text('El reporte se eliminará permanentemente. Útil si fue aprobado por error.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
+    final confirmar = await _confirmarAccion(
+      '🗑️ ¿Eliminar reporte?',
+      'El reporte se eliminará permanentemente. Esta acción no se puede deshacer.',
+      destructiva: true,
     );
-    if (confirmar != true) return;
-
+    if (!confirmar) return;
     await _supabase.eliminarReporte(reporteId);
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🗑️ Reporte eliminado')));
     _cargar();
   }
 
   Future<void> _reactivarReporte(String reporteId) async {
+    final confirmar = await _confirmarAccion(
+      '♻️ ¿Reactivar reporte?',
+      'El reporte volverá a estado pendiente y contará para la advertencia del contacto.',
+    );
+    if (!confirmar) return;
     await _supabase.reactivarReporte(reporteId);
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('♻️ Reporte reactivado')));
     _cargar();
+  }
+
+  Future<bool> _confirmarAccion(String titulo, String mensaje, {bool destructiva = false}) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(titulo),
+        content: Text(mensaje),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: destructiva ? FilledButton.styleFrom(backgroundColor: Colors.red) : null,
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   @override
@@ -88,7 +114,8 @@ class _ReportesAdminScreenState extends State<ReportesAdminScreen> with SingleTi
           controller: _tabCtrl,
           tabs: [
             Tab(text: 'Pendientes (${_pendientes.length})'),
-            Tab(text: 'Resueltos (${_resueltos.length})'),
+            Tab(text: 'Aprobados (${_aprobados.length})'),
+            Tab(text: 'Desestimados (${_desestimados.length})'),
           ],
         ),
       ),
@@ -97,14 +124,15 @@ class _ReportesAdminScreenState extends State<ReportesAdminScreen> with SingleTi
           : TabBarView(
               controller: _tabCtrl,
               children: [
-                _buildLista(_pendientes, esPendiente: true),
-                _buildLista(_resueltos, esPendiente: false),
+                _buildLista(_pendientes, tipo: 'pendiente'),
+                _buildLista(_aprobados, tipo: 'aprobado'),
+                _buildLista(_desestimados, tipo: 'desestimado'),
               ],
             ),
     );
   }
 
-  Widget _buildLista(List<Map<String, dynamic>> reportes, {required bool esPendiente}) {
+  Widget _buildLista(List<Map<String, dynamic>> reportes, {required String tipo}) {
     if (reportes.isEmpty) {
       return const Center(child: Text('No hay reportes'));
     }
@@ -149,7 +177,7 @@ class _ReportesAdminScreenState extends State<ReportesAdminScreen> with SingleTi
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      if (esPendiente) ...[
+                      if (tipo == 'pendiente') ...[
                         TextButton.icon(
                           onPressed: () => _aprobarReporte(r['id']),
                           icon: const Icon(Icons.warning_amber, size: 16, color: Colors.orange),
@@ -166,7 +194,19 @@ class _ReportesAdminScreenState extends State<ReportesAdminScreen> with SingleTi
                           label: const Text('Eliminar', style: TextStyle(fontSize: 12, color: Colors.red)),
                         ),
                       ],
-                      if (!esPendiente) ...[
+                      if (tipo == 'aprobado') ...[
+                        TextButton.icon(
+                          onPressed: () => _reactivarReporte(r['id']),
+                          icon: const Icon(Icons.undo, size: 16, color: Colors.orange),
+                          label: const Text('Reactivar', style: TextStyle(fontSize: 12)),
+                        ),
+                        TextButton.icon(
+                          onPressed: () => _eliminarReporte(r['id']),
+                          icon: const Icon(Icons.delete_forever, size: 16, color: Colors.red),
+                          label: const Text('Eliminar', style: TextStyle(fontSize: 12, color: Colors.red)),
+                        ),
+                      ],
+                      if (tipo == 'desestimado') ...[
                         TextButton.icon(
                           onPressed: () => _reactivarReporte(r['id']),
                           icon: const Icon(Icons.undo, size: 16, color: Colors.orange),

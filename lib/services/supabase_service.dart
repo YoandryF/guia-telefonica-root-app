@@ -275,6 +275,16 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(response);
   }
 
+  Future<List<Map<String, dynamic>>> getReportesPorEstado(String estado) async {
+    final response = await _client
+        .from('reportes')
+        .select('*, contactos(nombre, apellido, telefono)')
+        .eq('estado', estado)
+        .order('fecha_reporte', ascending: false)
+        .limit(50);
+    return List<Map<String, dynamic>>.from(response);
+  }
+
   Future<void> eliminarReporte(String reporteId) async {
     await _client.from('reportes').delete().eq('id', reporteId);
   }
