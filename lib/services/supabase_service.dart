@@ -265,10 +265,6 @@ class SupabaseService {
     await _client.from('reportes').update({'estado': 'revisado', 'fecha_resolucion': DateTime.now().toIso8601String()}).eq('id', reporteId);
   }
 
-  Future<void> aprobarReporte(String reporteId) async {
-    await _client.from('reportes').update({'estado': 'revisado', 'fecha_resolucion': DateTime.now().toIso8601String()}).eq('id', reporteId);
-  }
-
   Future<List<Map<String, dynamic>>> getReportesResueltos() async {
     final response = await _client
         .from('reportes')
