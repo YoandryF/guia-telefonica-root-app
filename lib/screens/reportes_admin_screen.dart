@@ -44,6 +44,12 @@ class _ReportesAdminScreenState extends State<ReportesAdminScreen> with SingleTi
     _cargar();
   }
 
+  Future<void> _aprobarReporte(String reporteId) async {
+    await _supabase.aprobarReporte(reporteId);
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠️ Reporte aprobado — contacto mantiene advertencia')));
+    _cargar();
+  }
+
   Future<void> _eliminarReporte(String reporteId) async {
     final confirmar = await showDialog<bool>(
       context: context,
@@ -144,6 +150,11 @@ class _ReportesAdminScreenState extends State<ReportesAdminScreen> with SingleTi
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       if (esPendiente) ...[
+                        TextButton.icon(
+                          onPressed: () => _aprobarReporte(r['id']),
+                          icon: const Icon(Icons.warning_amber, size: 16, color: Colors.orange),
+                          label: const Text('Aprobar', style: TextStyle(fontSize: 12, color: Colors.orange)),
+                        ),
                         TextButton.icon(
                           onPressed: () => _desestimar(r['id']),
                           icon: const Icon(Icons.check, size: 16, color: Colors.green),

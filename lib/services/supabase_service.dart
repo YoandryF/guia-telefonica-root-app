@@ -243,7 +243,7 @@ class SupabaseService {
         .from('reportes')
         .select()
         .eq('contacto_id', contactoId)
-        .eq('estado', 'pendiente')
+        .or('estado.eq.pendiente,estado.eq.revisado')
         .count(CountOption.exact);
     return response.count;
   }
@@ -259,6 +259,14 @@ class SupabaseService {
 
   Future<void> desestimarReporte(String reporteId) async {
     await _client.from('reportes').update({'estado': 'resuelto', 'fecha_resolucion': DateTime.now().toIso8601String()}).eq('id', reporteId);
+  }
+
+  Future<void> aprobarReporte(String reporteId) async {
+    await _client.from('reportes').update({'estado': 'revisado', 'fecha_resolucion': DateTime.now().toIso8601String()}).eq('id', reporteId);
+  }
+
+  Future<void> aprobarReporte(String reporteId) async {
+    await _client.from('reportes').update({'estado': 'revisado', 'fecha_resolucion': DateTime.now().toIso8601String()}).eq('id', reporteId);
   }
 
   Future<List<Map<String, dynamic>>> getReportesResueltos() async {
