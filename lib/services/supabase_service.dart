@@ -248,6 +248,33 @@ class SupabaseService {
     return response.count;
   }
 
+  Future<Map<String, dynamic>> getInfoReportes(String contactoId) async {
+    final pendientes = await _client
+        .from('reportes')
+        .select()
+        .eq('contacto_id', contactoId)
+        .eq('estado', 'pendiente')
+        .count(CountOption.exact);
+    final aprobados = await _client
+        .from('reportes')
+        .select()
+        .eq('contacto_id', contactoId)
+        .eq('estado', 'revisado')
+        .count(CountOption.exact);
+    final mostrar = aprobados.count >= 1 || pendientes.count >= 3;
+    return {
+      'pendientes': pendientes.count,
+      'aprobados': aprobados.count,
+      'mostrarBadge': mostrar,
+      'esVerificado': aprobados.count >= 1,
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> getReportesAgrupados({String filtro = 'todos', String orden = 'mas_reportes'}) async {
+    final response = await _client.rpc('get_reportes_agrupados', params: {'filtro': filtro, 'orden': orden});
+    return List<Map<String, dynamic>>.from(response);
+  }
+
   Future<List<Map<String, dynamic>>> getReportesPendientes() async {
     final response = await _client
         .from('reportes')
@@ -282,6 +309,15 @@ class SupabaseService {
         .eq('estado', estado)
         .order('fecha_reporte', ascending: false)
         .limit(50);
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  Future<List<Map<String, dynamic>>> getReportesDeContacto(String contactoId) async {
+    final response = await _client
+        .from('reportes')
+        .select('*')
+        .eq('contacto_id', contactoId)
+        .order('fecha_reporte', ascending: false);
     return List<Map<String, dynamic>>.from(response);
   }
 

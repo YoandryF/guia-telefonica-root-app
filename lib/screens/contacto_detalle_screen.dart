@@ -20,6 +20,7 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
   final _localDb = LocalDatabaseService();
   bool _esFavorito = false;
   int _reportes = 0;
+  bool _esVerificado = false;
   String? _nota;
 
   @override
@@ -38,8 +39,11 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
 
   Future<void> _cargarReportes() async {
     try {
-      final count = await SupabaseService().getConteoReportes(widget.contacto.id);
-      setState(() => _reportes = count);
+      final info = await SupabaseService().getInfoReportes(widget.contacto.id);
+      setState(() {
+        _reportes = (info['pendientes'] as int) + (info['aprobados'] as int);
+        _esVerificado = info['esVerificado'] as bool;
+      });
     } catch (_) {}
   }
 
@@ -336,7 +340,7 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
             const SizedBox(height: 16),
 
             // Badge de reportes
-            if (_reportes >= 3)
+            if (_esVerificado || _reportes >= 3)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Container(
@@ -350,8 +354,14 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
                     children: [
                       const Icon(Icons.warning_amber, color: Colors.red, size: 20),
                       const SizedBox(width: 8),
-                      Text('Este contacto ha sido reportado $_reportes veces',
-                          style: const TextStyle(color: Colors.red, fontSize: 12)),
+                      Expanded(
+                        child: Text(
+                          _esVerificado
+                              ? 'Contacto verificado como riesgoso'
+                              : 'Este contacto ha sido reportado $_reportes veces',
+                          style: const TextStyle(color: Colors.red, fontSize: 12),
+                        ),
+                      ),
                     ],
                   ),
                 ),

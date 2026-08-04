@@ -3,91 +3,161 @@ import '../services/supabase_service.dart';
 
 class ReportesAdminScreen extends StatefulWidget {
   const ReportesAdminScreen({super.key});
-
   @override
   State<ReportesAdminScreen> createState() => _ReportesAdminScreenState();
 }
 
-class _ReportesAdminScreenState extends State<ReportesAdminScreen> with SingleTickerProviderStateMixin {
+class _ReportesAdminScreenState extends State<ReportesAdminScreen> {
   final _supabase = SupabaseService();
-  late TabController _tabCtrl;
-  List<Map<String, dynamic>> _pendientes = [];
-  List<Map<String, dynamic>> _aprobados = [];
-  List<Map<String, dynamic>> _desestimados = [];
+  List<Map<String, dynamic>> _agrupados = [];
   bool _cargando = true;
+  String _filtro = 'todos';
+  String _orden = 'mas_reportes';
 
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 3, vsync: this);
     _cargar();
   }
 
   Future<void> _cargar() async {
     setState(() => _cargando = true);
     try {
-      final pendientes = await _supabase.getReportesPendientes();
-      final aprobados = await _supabase.getReportesPorEstado('revisado');
-      final desestimados = await _supabase.getReportesResueltos();
-      setState(() {
-        _pendientes = pendientes;
-        _aprobados = aprobados;
-        _desestimados = desestimados;
-        _cargando = false;
-      });
+      final data = await _supabase.getReportesAgrupados(filtro: _filtro, orden: _orden);
+      setState(() { _agrupados = data; _cargando = false; });
     } catch (e) {
       setState(() => _cargando = false);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
-  Future<void> _desestimar(String reporteId) async {
-    final confirmar = await _confirmarAccion(
-      '✅ ¿Desestimar reporte?',
-      'El reporte se marcará como inválido y no contará para la advertencia del contacto.',
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('⚠️ Reportes')),
+      body: Column(
+        children: [
+          // Filtros
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    value: _filtro,
+                    decoration: const InputDecoration(labelText: 'Filtro', border: OutlineInputBorder(), isDense: true),
+                    items: const [
+                      DropdownMenuItem(value: 'todos', child: Text('Todos')),
+                      DropdownMenuItem(value: 'sin_marcar', child: Text('Sin marcar')),
+                      DropdownMenuItem(value: 'marcados', child: Text('Marcados')),
+                    ],
+                    onChanged: (v) { setState(() => _filtro = v!); _cargar(); },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    value: _orden,
+                    decoration: const InputDecoration(labelText: 'Orden', border: OutlineInputBorder(), isDense: true),
+                    items: const [
+                      DropdownMenuItem(value: 'mas_reportes', child: Text('Más reportes')),
+                      DropdownMenuItem(value: 'menos_reportes', child: Text('Menos reportes')),
+                      DropdownMenuItem(value: 'mas_reciente', child: Text('Más reciente')),
+                    ],
+                    onChanged: (v) { setState(() => _orden = v!); _cargar(); },
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Lista agrupada
+          Expanded(
+            child: _cargando
+                ? const Center(child: CircularProgressIndicator())
+                : _agrupados.isEmpty
+                    ? const Center(child: Text('No hay contactos reportados'))
+                    : RefreshIndicator(
+                        onRefresh: _cargar,
+                        child: ListView.builder(
+                          itemCount: _agrupados.length,
+                          itemBuilder: (ctx, i) {
+                            final item = _agrupados[i];
+                            final aprobados = (item['aprobados'] as num?)?.toInt() ?? 0;
+                            final pendientes = (item['pendientes'] as num?)?.toInt() ?? 0;
+                            final total = (item['total_reportes'] as num?)?.toInt() ?? 0;
+                            final marcado = aprobados > 0;
+
+                            return Card(
+                              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: marcado ? Colors.red.withOpacity(0.2) : Colors.orange.withOpacity(0.2),
+                                  child: Icon(marcado ? Icons.dangerous : Icons.warning_amber,
+                                      color: marcado ? Colors.red : Colors.orange, size: 20),
+                                ),
+                                title: Text('${item['nombre']} ${item['apellido']}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('📱 ${item['telefono']}'),
+                                    Text('⚠️ $total reportes ($aprobados aprobados, $pendientes pendientes)',
+                                        style: const TextStyle(fontSize: 12)),
+                                    Text(marcado ? '🔴 Marcado' : '🟡 Sin marcar',
+                                        style: TextStyle(fontSize: 11, color: marcado ? Colors.red : Colors.orange)),
+                                  ],
+                                ),
+                                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                                isThreeLine: true,
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => _ReportesContactoScreen(
+                                    contactoId: item['contacto_id'],
+                                    nombre: '${item['nombre']} ${item['apellido']}',
+                                  )),
+                                ).then((_) => _cargar()),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+          ),
+        ],
+      ),
     );
-    if (!confirmar) return;
-    await _supabase.desestimarReporte(reporteId);
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Reporte desestimado')));
+  }
+}
+
+// Pantalla de reportes individuales de un contacto
+class _ReportesContactoScreen extends StatefulWidget {
+  final String contactoId;
+  final String nombre;
+  const _ReportesContactoScreen({required this.contactoId, required this.nombre});
+  @override
+  State<_ReportesContactoScreen> createState() => _ReportesContactoScreenState();
+}
+
+class _ReportesContactoScreenState extends State<_ReportesContactoScreen> {
+  final _supabase = SupabaseService();
+  List<Map<String, dynamic>> _reportes = [];
+  bool _cargando = true;
+
+  @override
+  void initState() {
+    super.initState();
     _cargar();
   }
 
-  Future<void> _aprobarReporte(String reporteId) async {
-    final confirmar = await _confirmarAccion(
-      '⚠️ ¿Aprobar reporte?',
-      'El reporte se marcará como válido. El contacto mantendrá la advertencia visible para todos los usuarios.',
-    );
-    if (!confirmar) return;
-    await _supabase.aprobarReporte(reporteId);
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠️ Reporte aprobado — contacto mantiene advertencia')));
-    _cargar();
+  Future<void> _cargar() async {
+    setState(() => _cargando = true);
+    final response = await _supabase.getReportesPorEstado('pendiente');
+    // Filtrar por contacto + también traer aprobados
+    final todos = await _supabase.getReportesDeContacto(widget.contactoId);
+    setState(() { _reportes = todos; _cargando = false; });
   }
 
-  Future<void> _eliminarReporte(String reporteId) async {
-    final confirmar = await _confirmarAccion(
-      '🗑️ ¿Eliminar reporte?',
-      'El reporte se eliminará permanentemente. Esta acción no se puede deshacer.',
-      destructiva: true,
-    );
-    if (!confirmar) return;
-    await _supabase.eliminarReporte(reporteId);
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🗑️ Reporte eliminado')));
-    _cargar();
-  }
-
-  Future<void> _reactivarReporte(String reporteId) async {
-    final confirmar = await _confirmarAccion(
-      '♻️ ¿Reactivar reporte?',
-      'El reporte volverá a estado pendiente y contará para la advertencia del contacto.',
-    );
-    if (!confirmar) return;
-    await _supabase.reactivarReporte(reporteId);
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('♻️ Reporte reactivado')));
-    _cargar();
-  }
-
-  Future<bool> _confirmarAccion(String titulo, String mensaje, {bool destructiva = false}) async {
-    final result = await showDialog<bool>(
+  Future<bool> _confirmar(String titulo, String mensaje, {bool destructiva = false}) async {
+    final r = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(titulo),
@@ -102,148 +172,108 @@ class _ReportesAdminScreenState extends State<ReportesAdminScreen> with SingleTi
         ],
       ),
     );
-    return result ?? false;
+    return r ?? false;
+  }
+
+  Future<void> _aprobar(String id) async {
+    if (!await _confirmar('⚠️ ¿Aprobar reporte?', 'El contacto se marcará como riesgoso.')) return;
+    await _supabase.aprobarReporte(id);
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠️ Aprobado')));
+    _cargar();
+  }
+
+  Future<void> _desestimar(String id) async {
+    if (!await _confirmar('✅ ¿Desestimar?', 'No contará para la advertencia.')) return;
+    await _supabase.desestimarReporte(id);
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Desestimado')));
+    _cargar();
+  }
+
+  Future<void> _eliminar(String id) async {
+    if (!await _confirmar('🗑️ ¿Eliminar?', 'Se borra permanentemente.', destructiva: true)) return;
+    await _supabase.eliminarReporte(id);
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🗑️ Eliminado')));
+    _cargar();
+  }
+
+  Future<void> _reactivar(String id) async {
+    if (!await _confirmar('♻️ ¿Reactivar?', 'Vuelve a pendiente.')) return;
+    await _supabase.reactivarReporte(id);
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('♻️ Reactivado')));
+    _cargar();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('⚠️ Reportes'),
-        bottom: TabBar(
-          controller: _tabCtrl,
-          tabs: [
-            Tab(text: 'Pendientes (${_pendientes.length})'),
-            Tab(text: 'Aprobados (${_aprobados.length})'),
-            Tab(text: 'Desestimados (${_desestimados.length})'),
-          ],
-        ),
-      ),
+      appBar: AppBar(title: Text(widget.nombre)),
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabCtrl,
-              children: [
-                _buildLista(_pendientes, tipo: 'pendiente'),
-                _buildLista(_aprobados, tipo: 'aprobado'),
-                _buildLista(_desestimados, tipo: 'desestimado'),
-              ],
-            ),
+          : _reportes.isEmpty
+              ? const Center(child: Text('No hay reportes'))
+              : ListView.builder(
+                  itemCount: _reportes.length,
+                  itemBuilder: (ctx, i) {
+                    final r = _reportes[i];
+                    final estado = r['estado'] ?? '';
+                    final estadoIcon = estado == 'revisado' ? '🔴' : estado == 'resuelto' ? '✅' : '🟡';
+
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text('$estadoIcon ${_motivoLabel(r['motivo'] ?? '')}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                const Spacer(),
+                                Text(_formatFecha(r['fecha_reporte']), style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                              ],
+                            ),
+                            if (r['descripcion'] != null && r['descripcion'].toString().isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text('💬 ${r['descripcion']}', style: const TextStyle(fontSize: 12)),
+                              ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                if (estado == 'pendiente') ...[
+                                  _actionBtn(Icons.warning_amber, 'Aprobar', Colors.orange, () => _aprobar(r['id'])),
+                                  _actionBtn(Icons.check, 'Desestimar', Colors.green, () => _desestimar(r['id'])),
+                                ],
+                                if (estado == 'revisado' || estado == 'resuelto')
+                                  _actionBtn(Icons.undo, 'Reactivar', Colors.orange, () => _reactivar(r['id'])),
+                                _actionBtn(Icons.delete, 'Eliminar', Colors.red, () => _eliminar(r['id'])),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 
-  Widget _buildLista(List<Map<String, dynamic>> reportes, {required String tipo}) {
-    if (reportes.isEmpty) {
-      return const Center(child: Text('No hay reportes'));
-    }
-
-    return RefreshIndicator(
-      onRefresh: _cargar,
-      child: ListView.builder(
-        itemCount: reportes.length,
-        itemBuilder: (ctx, i) {
-          final r = reportes[i];
-          final contacto = r['contactos'] as Map<String, dynamic>?;
-          final nombre = contacto != null ? '${contacto['nombre']} ${contacto['apellido']}' : 'Desconocido';
-          final telefono = contacto?['telefono'] ?? '';
-
-          return Card(
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(nombre, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      ),
-                      Chip(
-                        label: Text(_motivoLabel(r['motivo'] ?? ''), style: const TextStyle(fontSize: 10)),
-                        visualDensity: VisualDensity.compact,
-                        backgroundColor: _motivoColor(r['motivo'] ?? ''),
-                      ),
-                    ],
-                  ),
-                  Text('📱 $telefono', style: const TextStyle(fontSize: 13)),
-                  if (r['descripcion'] != null && r['descripcion'].toString().isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text('💬 ${r['descripcion']}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                    ),
-                  Text('📅 ${_formatFecha(r['fecha_reporte'])}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      if (tipo == 'pendiente') ...[
-                        TextButton.icon(
-                          onPressed: () => _aprobarReporte(r['id']),
-                          icon: const Icon(Icons.warning_amber, size: 16, color: Colors.orange),
-                          label: const Text('Aprobar', style: TextStyle(fontSize: 12, color: Colors.orange)),
-                        ),
-                        TextButton.icon(
-                          onPressed: () => _desestimar(r['id']),
-                          icon: const Icon(Icons.check, size: 16, color: Colors.green),
-                          label: const Text('Desestimar', style: TextStyle(fontSize: 12)),
-                        ),
-                        TextButton.icon(
-                          onPressed: () => _eliminarReporte(r['id']),
-                          icon: const Icon(Icons.delete, size: 16, color: Colors.red),
-                          label: const Text('Eliminar', style: TextStyle(fontSize: 12, color: Colors.red)),
-                        ),
-                      ],
-                      if (tipo == 'aprobado') ...[
-                        TextButton.icon(
-                          onPressed: () => _reactivarReporte(r['id']),
-                          icon: const Icon(Icons.undo, size: 16, color: Colors.orange),
-                          label: const Text('Reactivar', style: TextStyle(fontSize: 12)),
-                        ),
-                        TextButton.icon(
-                          onPressed: () => _eliminarReporte(r['id']),
-                          icon: const Icon(Icons.delete_forever, size: 16, color: Colors.red),
-                          label: const Text('Eliminar', style: TextStyle(fontSize: 12, color: Colors.red)),
-                        ),
-                      ],
-                      if (tipo == 'desestimado') ...[
-                        TextButton.icon(
-                          onPressed: () => _reactivarReporte(r['id']),
-                          icon: const Icon(Icons.undo, size: 16, color: Colors.orange),
-                          label: const Text('Reactivar', style: TextStyle(fontSize: 12)),
-                        ),
-                        TextButton.icon(
-                          onPressed: () => _eliminarReporte(r['id']),
-                          icon: const Icon(Icons.delete_forever, size: 16, color: Colors.red),
-                          label: const Text('Eliminar', style: TextStyle(fontSize: 12, color: Colors.red)),
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
+  Widget _actionBtn(IconData icon, String label, Color color, VoidCallback onTap) {
+    return TextButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 14, color: color),
+      label: Text(label, style: TextStyle(fontSize: 11, color: color)),
     );
   }
 
   String _motivoLabel(String motivo) {
     switch (motivo) {
-      case 'numero_incorrecto': return '📞 Incorrecto';
+      case 'numero_incorrecto': return '📞 Número incorrecto';
       case 'no_existe': return '❌ No existe';
       case 'spam': return '📢 Spam';
       case 'duplicado': return '🔄 Duplicado';
       default: return '📋 Otro';
-    }
-  }
-
-  Color _motivoColor(String motivo) {
-    switch (motivo) {
-      case 'spam': return Colors.red.withOpacity(0.1);
-      case 'numero_incorrecto': return Colors.orange.withOpacity(0.1);
-      default: return Colors.grey.withOpacity(0.1);
     }
   }
 
@@ -252,11 +282,5 @@ class _ReportesAdminScreenState extends State<ReportesAdminScreen> with SingleTi
     final dt = DateTime.tryParse(fecha);
     if (dt == null) return '';
     return '${dt.day}/${dt.month}/${dt.year}';
-  }
-
-  @override
-  void dispose() {
-    _tabCtrl.dispose();
-    super.dispose();
   }
 }
