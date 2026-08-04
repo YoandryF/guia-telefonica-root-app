@@ -261,6 +261,24 @@ class SupabaseService {
     await _client.from('reportes').update({'estado': 'resuelto', 'fecha_resolucion': DateTime.now().toIso8601String()}).eq('id', reporteId);
   }
 
+  Future<List<Map<String, dynamic>>> getReportesResueltos() async {
+    final response = await _client
+        .from('reportes')
+        .select('*, contactos(nombre, apellido, telefono)')
+        .eq('estado', 'resuelto')
+        .order('fecha_resolucion', ascending: false)
+        .limit(50);
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  Future<void> eliminarReporte(String reporteId) async {
+    await _client.from('reportes').delete().eq('id', reporteId);
+  }
+
+  Future<void> reactivarReporte(String reporteId) async {
+    await _client.from('reportes').update({'estado': 'pendiente', 'fecha_resolucion': null}).eq('id', reporteId);
+  }
+
   // === AUTH ADMIN ===
 
   Future<bool> loginAdmin(String email, String password) async {

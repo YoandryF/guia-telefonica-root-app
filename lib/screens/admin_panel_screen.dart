@@ -5,6 +5,7 @@ import 'categorias_admin_screen.dart';
 import 'contactos_list_screen.dart';
 import 'exportar_screen.dart';
 import 'importar_screen.dart';
+import 'reportes_admin_screen.dart';
 
 class AdminPanelScreen extends StatefulWidget {
   const AdminPanelScreen({super.key});
@@ -170,6 +171,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CategoriasAdminScreen())),
                     icon: const Icon(Icons.category),
                     label: const Text('Gestionar categorías'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportesAdminScreen())),
+                    icon: const Icon(Icons.warning_amber, color: Colors.orange),
+                    label: const Text('Gestionar reportes'),
                   ),
 
                   const SizedBox(height: 24),
