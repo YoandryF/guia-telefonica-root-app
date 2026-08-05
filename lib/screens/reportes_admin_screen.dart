@@ -112,7 +112,7 @@ class _ReportesAdminScreenState extends State<ReportesAdminScreen> {
                                 onTap: () => Navigator.push(
                                   context,
                                   MaterialPageRoute(builder: (_) => _ReportesContactoScreen(
-                                    contactoId: item['contacto_id'],
+                                    contactoId: item['contact_id'],
                                     nombre: '${item['nombre']} ${item['apellido']}',
                                   )),
                                 ).then((_) => _cargar()),
