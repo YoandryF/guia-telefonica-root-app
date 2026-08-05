@@ -44,12 +44,6 @@ android {
         versionName = flutterVersionName
     }
 
-    buildTypes {
-        release {
-            signingConfig = signingConfigs.release
-        }
-    }
-
     def keystoreProperties = new Properties()
     def keystorePropertiesFile = rootProject.file("key.properties")
     if (keystorePropertiesFile.exists()) {
@@ -62,6 +56,12 @@ android {
             keyPassword = keystoreProperties['keyPassword'] ?: System.getenv("KEY_PASSWORD") ?: ""
             storeFile = keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : (System.getenv("KEYSTORE_PATH") ? file(System.getenv("KEYSTORE_PATH")) : null)
             storePassword = keystoreProperties['storePassword'] ?: System.getenv("STORE_PASSWORD") ?: ""
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.release
         }
     }
 }
