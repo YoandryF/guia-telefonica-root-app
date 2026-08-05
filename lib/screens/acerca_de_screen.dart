@@ -93,8 +93,6 @@ class _AcercaDeScreenState extends State<AcercaDeScreen> {
                       _infoRowTap(Icons.code, 'GitHub', 'YoandryF', () => _abrirUrl('https://github.com/YoandryF')),
                       const Divider(),
                       _infoRow(Icons.category, 'Ecosistema', 'ROOT'),
-                      const Divider(),
-                      _infoRow(Icons.attach_money, 'Costo', 'Gratis — \$0'),
                     ],
                   ),
                 ),
