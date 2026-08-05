@@ -46,11 +46,19 @@ jobs:
         id: version
         run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
+      - name: Get tag message
+        id: tag_msg
+        run: |
+          TAG_MSG=$(git tag -l --format='%(contents)' ${GITHUB_REF#refs/tags/})
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAG_MSG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create Release & Upload APK
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ steps.version.outputs.tag }}
+          body: ${{ steps.tag_msg.outputs.body }}
           files: build/app/outputs/flutter-apk/app-release.apk
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
