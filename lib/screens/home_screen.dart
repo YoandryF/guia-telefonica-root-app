@@ -9,6 +9,7 @@ import 'agregar_contacto_screen.dart';
 import 'acerca_de_screen.dart';
 import 'caller_id_screen.dart';
 import 'contacto_detalle_screen.dart';
+import 'escanear_agenda_screen.dart';
 import 'login_admin_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -165,6 +166,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 case 'callerid':
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const CallerIdScreen()));
                   break;
+                case 'scan':
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const EscanearAgendaScreen()));
+                  break;
                 case 'about':
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const AcercaDeScreen()));
                   break;
@@ -172,6 +176,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             },
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'callerid', child: ListTile(leading: Icon(Icons.phone_callback), title: Text('Identificador de llamadas'), dense: true)),
+              const PopupMenuItem(value: 'scan', child: ListTile(leading: Icon(Icons.security), title: Text('Escanear agenda'), dense: true)),
               const PopupMenuItem(value: 'update', child: ListTile(leading: Icon(Icons.system_update), title: Text('Buscar actualización'), dense: true)),
               const PopupMenuItem(value: 'admin', child: ListTile(leading: Icon(Icons.admin_panel_settings), title: Text('Panel Admin'), dense: true)),
               const PopupMenuItem(value: 'about', child: ListTile(leading: Icon(Icons.info_outline), title: Text('Acerca de'), dense: true)),

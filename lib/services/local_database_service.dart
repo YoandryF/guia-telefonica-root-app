@@ -17,7 +17,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -49,6 +49,9 @@ class LocalDatabaseService {
         )
       ''');
     }
+    if (oldVersion < 4) {
+      await db.execute('ALTER TABLE contactos_aprobados ADD COLUMN tiene_reportes INTEGER DEFAULT 0');
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -64,7 +67,8 @@ class LocalDatabaseService {
         categoria_nombre TEXT,
         categoria_icono TEXT,
         fecha_creacion TEXT,
-        fecha_aprobacion TEXT
+        fecha_aprobacion TEXT,
+        tiene_reportes INTEGER DEFAULT 0
       )
     ''');
 
@@ -282,6 +286,24 @@ class LocalDatabaseService {
         'fecha': DateTime.now().toIso8601String(),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
+  }
+
+  // === REPORTES LOCAL ===
+
+  Future<void> actualizarReportes(Map<String, bool> reportes) async {
+    final db = await database;
+    final batch = db.batch();
+    for (final entry in reportes.entries) {
+      batch.update('contactos_aprobados', {'tiene_reportes': entry.value ? 1 : 0},
+          where: 'id = ?', whereArgs: [entry.key]);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<List<String>> getTelefonosReportados() async {
+    final db = await database;
+    final result = await db.query('contactos_aprobados', where: 'tiene_reportes = 1', columns: ['telefono']);
+    return result.map((r) => r['telefono'] as String).toList();
   }
 
   // === CATEGORÍAS LOCAL ===
