@@ -17,7 +17,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -36,6 +36,16 @@ class LocalDatabaseService {
           contacto_id TEXT PRIMARY KEY,
           nota TEXT NOT NULL,
           fecha TEXT NOT NULL
+        )
+      ''');
+    }
+    if (oldVersion < 3) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS categorias_local (
+          id TEXT PRIMARY KEY,
+          nombre TEXT NOT NULL,
+          icono TEXT,
+          color TEXT
         )
       ''');
     }
@@ -272,5 +282,27 @@ class LocalDatabaseService {
         'fecha': DateTime.now().toIso8601String(),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
+  }
+
+  // === CATEGORÍAS LOCAL ===
+
+  Future<void> guardarCategorias(List<Map<String, dynamic>> categorias) async {
+    final db = await database;
+    final batch = db.batch();
+    batch.delete('categorias_local');
+    for (final cat in categorias) {
+      batch.insert('categorias_local', {
+        'id': cat['id'],
+        'nombre': cat['nombre'],
+        'icono': cat['icono'],
+        'color': cat['color'],
+      });
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<List<Map<String, dynamic>>> getCategoriasLocal() async {
+    final db = await database;
+    return await db.query('categorias_local', orderBy: 'nombre ASC');
   }
 }

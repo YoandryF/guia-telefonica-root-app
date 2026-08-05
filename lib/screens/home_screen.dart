@@ -99,9 +99,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _cargarCategorias() async {
     try {
+      // Intentar desde Supabase
       final cats = await _supabaseService.getCategorias();
       setState(() => _categorias = cats);
-    } catch (_) {}
+      // Guardar en local para offline
+      await _localDb.guardarCategorias(cats);
+    } catch (_) {
+      // Sin conexión: cargar desde SQLite local
+      final catsLocal = await _localDb.getCategoriasLocal();
+      setState(() => _categorias = catsLocal);
+    }
   }
 
 
