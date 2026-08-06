@@ -262,19 +262,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       },
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: FilterChip(
-                      avatar: const Text('⚠️', style: TextStyle(fontSize: 12)),
-                      label: const Text('Reportados', style: TextStyle(fontSize: 11)),
-                      selected: _categoriaFiltro == '_reportados',
-                      selectedColor: Colors.red.withOpacity(0.2),
-                      onSelected: (_) {
-                        setState(() => _categoriaFiltro = _categoriaFiltro == '_reportados' ? null : '_reportados');
-                        _filtrar(_searchController.text);
-                      },
-                    ),
-                  ),
                   ..._categorias.map((cat) => Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: FilterChip(
