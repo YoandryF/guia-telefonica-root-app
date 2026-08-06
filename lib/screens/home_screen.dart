@@ -423,10 +423,13 @@ class _ContactoCard extends StatelessWidget {
           MaterialPageRoute(builder: (_) => ContactoDetalleScreen(contacto: contacto)),
         ),
         leading: CircleAvatar(
-          child: Text(
-            contacto.nombre[0].toUpperCase(),
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
+          backgroundColor: contacto.tieneReportes ? Colors.red.withOpacity(0.2) : null,
+          child: contacto.tieneReportes
+              ? const Icon(Icons.warning_amber, color: Colors.red, size: 20)
+              : Text(
+                  contacto.nombre[0].toUpperCase(),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
         ),
         title: Text(contacto.nombreCompleto),
         subtitle: Column(
