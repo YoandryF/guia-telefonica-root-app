@@ -228,31 +228,6 @@ class MainActivity : FlutterActivity() {
     }
 
 
-    private fun getPhoneContacts(): List<Map<String, String>> {
-        val contacts = mutableListOf<Map<String, String>>()
-        val cursor = contentResolver.query(
-            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-            arrayOf(
-                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
-                ContactsContract.CommonDataKinds.Phone.NUMBER
-            ),
-            null, null, null
-        )
-        cursor?.use {
-            val nameIdx = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-            val phoneIdx = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
-            while (it.moveToNext()) {
-                val name = it.getString(nameIdx) ?: ""
-                val phone = it.getString(phoneIdx) ?: ""
-                if (phone.isNotEmpty()) {
-                    contacts.add(mapOf("name" to name, "phone" to phone))
-                }
-            }
-        }
-        return contacts
-    }
-
-
     // === INSTALADOR APK ===
 
     private fun canInstallApk(): Boolean {
