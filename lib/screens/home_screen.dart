@@ -91,6 +91,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
 
       await _localDb.guardarUltimaSincronizacion(DateTime.now());
+      // Actualizar campo tiene_reportes
+      try {
+        final idsReportados = await _supabaseService.getContactosConReportes();
+        final contactos = await _localDb.getAllContactos();
+        final reportesMap = <String, bool>{};
+        for (final c in contactos) {
+          reportesMap[c.id] = idsReportados.contains(c.id);
+        }
+        await _localDb.actualizarReportes(reportesMap);
+      } catch (_) {}
       await _cargarContactos();
     } catch (e) {
       // Sin conexión — usar datos locales
