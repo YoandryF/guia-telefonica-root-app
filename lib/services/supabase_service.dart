@@ -199,36 +199,9 @@ class SupabaseService {
 
   Future<Set<String>> getContactosConReportes() async {
     try {
-      // Contactos con al menos 1 reporte aprobado
-      final aprobados = await _client
-          .from('reportes')
-          .select('contacto_id')
-          .eq('estado', 'revisado');
-
-      // Contactos con 3+ reportes pendientes
-      final pendientes = await _client
-          .from('reportes')
-          .select('contacto_id')
-          .eq('estado', 'pendiente');
-
-      final ids = <String>{};
-
-      // Agregar todos los que tienen aprobado
-      for (final r in List<Map<String, dynamic>>.from(aprobados)) {
-        ids.add(r['contacto_id'] as String);
-      }
-
-      // Contar pendientes por contacto y agregar los que tienen 3+
-      final conteo = <String, int>{};
-      for (final r in List<Map<String, dynamic>>.from(pendientes)) {
-        final id = r['contacto_id'] as String;
-        conteo[id] = (conteo[id] ?? 0) + 1;
-      }
-      for (final entry in conteo.entries) {
-        if (entry.value >= 3) ids.add(entry.key);
-      }
-
-      return ids;
+      final response = await _client.rpc('get_contactos_reportados');
+      final list = List<Map<String, dynamic>>.from(response);
+      return list.map((r) => r['contacto_id'] as String).toSet();
     } catch (_) {
       return {};
     }
