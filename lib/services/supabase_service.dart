@@ -237,14 +237,18 @@ class SupabaseService {
     String? dispositivoId,
   }) async {
     try {
-      await _client.from('reportes').insert({
-        'contacto_id': contactoId,
-        'motivo': motivo,
-        'descripcion': descripcion,
-        'reportado_desde': 'app',
-        'dispositivo_id': dispositivoId,
+      final result = await _client.rpc('insertar_reporte', params: {
+        'p_contacto_id': contactoId,
+        'p_motivo': motivo,
+        'p_descripcion': descripcion,
+        'p_reportado_desde': 'app',
+        'p_dispositivo_id': dispositivoId,
       });
-      return {'error': null};
+      final status = result.toString();
+      if (status == 'OK') return {'error': null};
+      if (status == 'LIMITE') return {'error': 'Has alcanzado el límite de reportes por hoy'};
+      if (status == 'BANEADO') return {'error': 'No tienes permiso para reportar'};
+      return {'error': status};
     } catch (e) {
       return {'error': e.toString()};
     }
@@ -339,6 +343,17 @@ class SupabaseService {
 
   Future<void> reactivarReporte(String reporteId) async {
     await _client.from('reportes').update({'estado': 'pendiente', 'fecha_resolucion': null}).eq('id', reporteId);
+  }
+
+  Future<void> banearReportador(String identificador, {String? motivo}) async {
+    await _client.from('usuarios_baneados').insert({
+      'identificador': identificador,
+      'motivo': motivo ?? 'Abuso de reportes',
+    });
+  }
+
+  Future<void> desbanearReportador(String identificador) async {
+    await _client.from('usuarios_baneados').delete().eq('identificador', identificador);
   }
 
   // === AUTH ADMIN ===

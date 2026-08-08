@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../models/contacto.dart';
 import '../services/local_database_service.dart';
 import '../services/supabase_service.dart';
@@ -31,6 +32,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   List<Map<String, dynamic>> _categorias = [];
   String? _categoriaFiltro;
   bool _cargando = true;
+  bool _online = true;
   DateTime? _ultimaSync;
 
   @override
@@ -40,6 +42,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _cargarCategorias();
     _sincronizar();
     _verificarActualizacion();
+    Connectivity().onConnectivityChanged.listen((result) {
+      setState(() => _online = result != ConnectivityResult.none);
+      if (_online) _sincronizar();
+    });
   }
 
   Future<void> _verificarActualizacion() async {
@@ -203,6 +209,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
       body: Column(
         children: [
+          // Banner offline
+          if (!_online)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: Colors.red.shade700,
+              child: const Row(
+                children: [
+                  Icon(Icons.wifi_off, color: Colors.white, size: 16),
+                  SizedBox(width: 8),
+                  Text('Sin conexión — mostrando datos locales', style: TextStyle(color: Colors.white, fontSize: 12)),
+                ],
+              ),
+            ),
+
+
           // Barra de búsqueda
           Padding(
             padding: const EdgeInsets.all(12),
