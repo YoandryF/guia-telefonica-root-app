@@ -55,6 +55,11 @@ class MainActivity : FlutterActivity() {
                     val contacts = getPhoneContacts()
                     result.success(contacts)
                 }
+                "openContact" -> {
+                    val phone = call.argument<String>("phone") ?: ""
+                    openContactByPhone(phone)
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -207,6 +212,21 @@ class MainActivity : FlutterActivity() {
         }
         return count
     }
+
+    private fun openContactByPhone(phone: String) {
+        val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(phone))
+        val cursor = contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup._ID), null, null, null)
+        cursor?.use {
+            if (it.moveToFirst()) {
+                val contactId = it.getLong(0)
+                val intent = Intent(Intent.ACTION_VIEW)
+                intent.data = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_URI, contactId.toString())
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+            }
+        }
+    }
+
 
     private fun getPhoneContacts(): List<Map<String, String>> {
         val contacts = mutableListOf<Map<String, String>>()

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../models/contacto.dart';
 import '../services/local_database_service.dart';
+import 'contacto_detalle_screen.dart';
 
 class EscanearAgendaScreen extends StatefulWidget {
   const EscanearAgendaScreen({super.key});
@@ -14,7 +16,7 @@ class _EscanearAgendaScreenState extends State<EscanearAgendaScreen> {
   final _localDb = LocalDatabaseService();
 
   bool _escaneando = false;
-  List<Map<String, String>> _riesgosos = [];
+  List<Map<String, dynamic>> _riesgosos = [];
   int _totalEscaneados = 0;
   bool _escaneado = false;
 
@@ -38,18 +40,22 @@ class _EscanearAgendaScreenState extends State<EscanearAgendaScreen> {
 
       // Obtener teléfonos reportados de nuestra BD local
       final reportados = await _localDb.getTelefonosReportados();
+      final todos = await _localDb.getAllContactos();
 
       // Normalizar para comparar
       final reportadosNorm = reportados.map(_normalizar).toSet();
 
       // Comparar
-      final encontrados = <Map<String, String>>[];
+      final encontrados = <Map<String, dynamic>>[];
       for (final contacto in agendaContactos) {
         final tel = _normalizar(contacto['phone']?.toString() ?? '');
         if (tel.isNotEmpty && reportadosNorm.contains(tel)) {
+          // Buscar contacto local correspondiente
+          final local = todos.where((c) => _normalizar(c.telefono) == tel).toList();
           encontrados.add({
             'nombre': contacto['name']?.toString() ?? 'Desconocido',
             'telefono': contacto['phone']?.toString() ?? '',
+            'contacto_local': local.isNotEmpty ? local.first : null,
           });
         }
       }
@@ -152,14 +158,45 @@ class _EscanearAgendaScreenState extends State<EscanearAgendaScreen> {
                     itemCount: _riesgosos.length,
                     itemBuilder: (ctx, i) {
                       final c = _riesgosos[i];
+                      final contactoLocal = c['contacto_local'] as Contacto?;
                       return Card(
-                        child: ListTile(
-                          leading: const CircleAvatar(
-                            backgroundColor: Colors.red,
-                            child: Icon(Icons.warning, color: Colors.white, size: 20),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const CircleAvatar(backgroundColor: Colors.red, child: Icon(Icons.warning, color: Colors.white, size: 20)),
+                                  const SizedBox(width: 12),
+                                  Expanded(child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(c['nombre'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      Text('📱 ${c['telefono']}', style: const TextStyle(fontSize: 12)),
+                                    ],
+                                  )),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  if (contactoLocal != null)
+                                    Expanded(child: OutlinedButton.icon(
+                                      onPressed: () => Navigator.push(ctx, MaterialPageRoute(builder: (_) => ContactoDetalleScreen(contacto: contactoLocal))),
+                                      icon: const Icon(Icons.info_outline, size: 16),
+                                      label: const Text('Ver detalles', style: TextStyle(fontSize: 11)),
+                                    )),
+                                  const SizedBox(width: 8),
+                                  Expanded(child: OutlinedButton.icon(
+                                    onPressed: () => _channel.invokeMethod('openContact', {'phone': c['telefono']}),
+                                    icon: const Icon(Icons.contacts, size: 16),
+                                    label: const Text('Abrir en agenda', style: TextStyle(fontSize: 11)),
+                                  )),
+                                ],
+                              ),
+                            ],
                           ),
-                          title: Text(c['nombre'] ?? ''),
-                          subtitle: Text('📱 ${c['telefono']}'),
                         ),
                       );
                     },
