@@ -17,7 +17,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -51,6 +51,9 @@ class LocalDatabaseService {
     }
     if (oldVersion < 4) {
       await db.execute('ALTER TABLE contactos_aprobados ADD COLUMN tiene_reportes INTEGER DEFAULT 0');
+    }
+    if (oldVersion < 5) {
+      await db.execute('ALTER TABLE contactos_aprobados ADD COLUMN reporte_confirmado INTEGER DEFAULT 0');
     }
   }
 

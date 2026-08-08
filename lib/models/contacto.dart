@@ -16,6 +16,7 @@ class Contacto {
   final String? categoriaNombre;
   final String? categoriaIcono;
   final bool tieneReportes;
+  final bool reporteConfirmado;
 
   Contacto({
     required this.id,
@@ -34,6 +35,7 @@ class Contacto {
     this.categoriaNombre,
     this.categoriaIcono,
     this.tieneReportes = false,
+    this.reporteConfirmado = false,
   });
 
   factory Contacto.fromJson(Map<String, dynamic> json) {
@@ -59,6 +61,7 @@ class Contacto {
       categoriaNombre: categoria?['nombre'] as String?,
       categoriaIcono: categoria?['icono'] as String?,
       tieneReportes: (json['tiene_reportes'] == 1 || json['tiene_reportes'] == true),
+      reporteConfirmado: (json['reporte_confirmado'] == 1 || json['reporte_confirmado'] == true),
     );
   }
 

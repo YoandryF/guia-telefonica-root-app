@@ -1,0 +1,17 @@
+name: Expire old reports
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # Diario a las 6am UTC
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  expire:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Expire pending reports older than configured days
+        run: |
+          curl -X POST '${{ secrets.SUPABASE_URL }}/rest/v1/rpc/expirar_reportes' \
+            -H 'apikey: ${{ secrets.SUPABASE_SERVICE_KEY }}' \
+            -H 'Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}' \
+            -H 'Content-Type: application/json'
