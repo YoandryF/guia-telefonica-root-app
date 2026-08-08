@@ -372,4 +372,18 @@ class SupabaseService {
   }
 
   bool get isAdmin => _client.auth.currentUser != null;
+
+  Future<List<Map<String, dynamic>>> getAdmins() async {
+    final response = await _client.from('admins').select().order('fecha_creacion');
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  Future<void> crearAdmin({required String email, required String password, required String nombre}) async {
+    final authResponse = await _client.auth.admin.createUser(AdminUserAttributes(email: email, password: password, emailConfirm: true));
+    await _client.from('admins').insert({'user_id': authResponse.user!.id, 'email': email, 'nombre_admin': nombre, 'activo': true, 'rol': 'admin'});
+  }
+
+  Future<void> desactivarAdmin(String email) async {
+    await _client.from('admins').update({'activo': false}).eq('email', email);
+  }
 }

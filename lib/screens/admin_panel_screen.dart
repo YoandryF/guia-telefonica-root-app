@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/contacto.dart';
 import '../services/supabase_service.dart';
+import 'admins_screen.dart';
+import 'auditoria_screen.dart';
 import 'categorias_admin_screen.dart';
 import 'contactos_list_screen.dart';
 import 'exportar_screen.dart';
@@ -177,6 +179,18 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportesAdminScreen())),
                     icon: const Icon(Icons.warning_amber, color: Colors.orange),
                     label: const Text('Gestionar reportes'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminsScreen())),
+                    icon: const Icon(Icons.people, color: Colors.blue),
+                    label: const Text('Gestionar admins'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AuditoriaScreen())),
+                    icon: const Icon(Icons.history, color: Colors.purple),
+                    label: const Text('Auditoría'),
                   ),
 
                   const SizedBox(height: 24),
