@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../models/contacto.dart';
 import '../services/local_database_service.dart';
 import '../services/supabase_service.dart';
@@ -33,6 +34,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   String? _categoriaFiltro;
   bool _cargando = true;
   bool _online = true;
+  bool _escuchando = false;
+  final stt.SpeechToText _speech = stt.SpeechToText();
   DateTime? _ultimaSync;
 
   @override
@@ -155,6 +158,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     });
   }
 
+  Future<void> _toggleVoz() async {
+    if (_escuchando) {
+      await _speech.stop();
+      setState(() => _escuchando = false);
+    } else {
+      final available = await _speech.initialize(onError: (_) => setState(() => _escuchando = false));
+      if (!available) return;
+      setState(() => _escuchando = true);
+      await _speech.listen(
+        localeId: 'es_ES',
+        onResult: (result) {
+          _searchController.text = result.recognizedWords;
+          _filtrar(result.recognizedWords);
+          if (result.finalResult) setState(() => _escuchando = false);
+        },
+      );
+    }
+  }
+
+
   Future<void> _llamar(String telefono) async {
     final uri = Uri.parse('tel:$telefono');
     if (await canLaunchUrl(uri)) {
@@ -241,7 +264,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           _filtrar('');
                         },
                       )
-                    : null,
+                    : IconButton(
+                        icon: Icon(_escuchando ? Icons.mic : Icons.mic_none, color: _escuchando ? Colors.red : null),
+                        onPressed: _toggleVoz,
+                      ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -464,16 +490,19 @@ class _ContactoCard extends StatelessWidget {
           context,
           MaterialPageRoute(builder: (_) => ContactoDetalleScreen(contacto: contacto)),
         ),
-        leading: CircleAvatar(
-          backgroundColor: contacto.tieneReportes
-              ? (contacto.reporteConfirmado ? Colors.red.withOpacity(0.2) : Colors.orange.withOpacity(0.2))
-              : null,
-          child: contacto.tieneReportes
-              ? Icon(Icons.warning_amber, color: contacto.reporteConfirmado ? Colors.red : Colors.orange, size: 20)
-              : Text(
-                  contacto.nombre[0].toUpperCase(),
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
+        leading: Hero(
+          tag: 'avatar_${contacto.id}',
+          child: CircleAvatar(
+            backgroundColor: contacto.tieneReportes
+                ? (contacto.reporteConfirmado ? Colors.red.withOpacity(0.2) : Colors.orange.withOpacity(0.2))
+                : null,
+            child: contacto.tieneReportes
+                ? Icon(Icons.warning_amber, color: contacto.reporteConfirmado ? Colors.red : Colors.orange, size: 20)
+                : Text(
+                    contacto.nombre[0].toUpperCase(),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+          ),
         ),
         title: Text(contacto.nombreCompleto),
         subtitle: Column(

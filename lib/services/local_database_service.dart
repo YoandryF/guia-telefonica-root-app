@@ -309,6 +309,21 @@ class LocalDatabaseService {
     return result.map((r) => r['telefono'] as String).toList();
   }
 
+  // === BACKUP / RESTORE ===
+
+  Future<String> getDbPath() async {
+    final dbPath = await getDatabasesPath();
+    return join(dbPath, 'guia_telefonica.db');
+  }
+
+  Future<void> closeDb() async {
+    if (_database != null) {
+      await _database!.close();
+      _database = null;
+    }
+  }
+
+
   // === CATEGORÍAS LOCAL ===
 
   Future<void> guardarCategorias(List<Map<String, dynamic>> categorias) async {

@@ -38,6 +38,8 @@ class _ExportarScreenState extends State<ExportarScreen> {
 
       if (_formato == 'csv') {
         await _export.exportarCSV(contactos);
+      } else if (_formato == 'pdf') {
+        await _export.exportarPDF(contactos);
       } else {
         await _export.exportarJSON(contactos);
       }
@@ -74,6 +76,7 @@ class _ExportarScreenState extends State<ExportarScreen> {
                       segments: const [
                         ButtonSegment(value: 'csv', label: Text('CSV'), icon: Icon(Icons.table_chart)),
                         ButtonSegment(value: 'json', label: Text('JSON'), icon: Icon(Icons.code)),
+                        ButtonSegment(value: 'pdf', label: Text('PDF'), icon: Icon(Icons.picture_as_pdf)),
                       ],
                       selected: {_formato},
                       onSelectionChanged: (s) => setState(() => _formato = s.first),

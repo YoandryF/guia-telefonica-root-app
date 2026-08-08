@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'home_screen.dart';
+import 'onboarding_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -11,8 +13,13 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+    Future.delayed(const Duration(seconds: 2), () async {
+      if (!mounted) return;
+      final prefs = await SharedPreferences.getInstance();
+      final visto = prefs.getBool('onboarding_visto') ?? false;
+      if (mounted) {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => visto ? const HomeScreen() : const OnboardingScreen()));
+      }
     });
   }
 

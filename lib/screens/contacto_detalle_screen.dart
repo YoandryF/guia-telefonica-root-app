@@ -355,9 +355,16 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
                   CircleAvatar(
                     radius: 40,
                     backgroundColor: theme.colorScheme.primary,
-                    child: Text(
-                      c.nombre[0].toUpperCase(),
-                      style: const TextStyle(fontSize: 32, color: Colors.white),
+                    child: Hero(
+                      tag: 'avatar_${c.id}',
+                      child: CircleAvatar(
+                        radius: 40,
+                        backgroundColor: theme.colorScheme.primary,
+                        child: Text(
+                          c.nombre[0].toUpperCase(),
+                          style: const TextStyle(fontSize: 32, color: Colors.white),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
