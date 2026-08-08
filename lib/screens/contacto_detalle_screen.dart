@@ -221,6 +221,44 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
     );
   }
 
+  Future<void> _avalar() async {
+    final result = await SupabaseService().avalarContacto(widget.contacto.id);
+    if (!mounted) return;
+    if (result['error'] == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('👍 Aval registrado. Gracias.')));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('⚠️ ${result['error']}')));
+    }
+  }
+
+  Future<void> _reclamar() async {
+    final ctrl = TextEditingController();
+    final msg = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('⚖️ Reclamar'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Si eres el dueño de este número o conoces al contacto, explica por qué el reporte es injusto.', style: TextStyle(fontSize: 12)),
+          const SizedBox(height: 12),
+          TextField(controller: ctrl, maxLines: 3, decoration: const InputDecoration(hintText: 'Tu mensaje...', border: OutlineInputBorder())),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('Enviar')),
+        ],
+      ),
+    );
+    if (msg == null || msg.isEmpty) return;
+    final result = await SupabaseService().reclamarContacto(widget.contacto.id, msg);
+    if (!mounted) return;
+    if (result['error'] == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚖️ Reclamo enviado. Un admin lo revisará.')));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ ${result['error']}')));
+    }
+  }
+
+
   Future<void> _reportar() async {
     final motivos = [
       {'value': 'numero_incorrecto', 'label': '📞 Número incorrecto'},
@@ -343,27 +381,51 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
             if (_esVerificado || _reportes >= 3)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.red.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.warning_amber, color: Colors.red, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _esVerificado
-                              ? 'Contacto verificado como riesgoso'
-                              : 'Este contacto ha sido reportado $_reportes veces',
-                          style: const TextStyle(color: Colors.red, fontSize: 12),
-                        ),
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.withOpacity(0.3)),
                       ),
-                    ],
-                  ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.warning_amber, color: Colors.red, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _esVerificado
+                                  ? 'Contacto verificado como riesgoso'
+                                  : 'Este contacto ha sido reportado $_reportes veces',
+                              style: const TextStyle(color: Colors.red, fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _avalar,
+                            icon: const Icon(Icons.thumb_up, size: 16, color: Colors.green),
+                            label: const Text('Es legítimo', style: TextStyle(fontSize: 11)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _reclamar,
+                            icon: const Icon(Icons.gavel, size: 16, color: Colors.blue),
+                            label: const Text('Reclamar', style: TextStyle(fontSize: 11)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
 

@@ -356,6 +356,69 @@ class SupabaseService {
     await _client.from('usuarios_baneados').delete().eq('identificador', identificador);
   }
 
+  // === AVALES (contra-reportes positivos) ===
+
+  Future<Map<String, dynamic>> avalarContacto(String contactoId, {String? dispositivoId}) async {
+    try {
+      await _client.from('avales').insert({'contacto_id': contactoId, 'dispositivo_id': dispositivoId});
+      return {'error': null};
+    } catch (e) {
+      if (e.toString().contains('duplicate')) return {'error': 'Ya avalaste este contacto'};
+      return {'error': e.toString()};
+    }
+  }
+
+  Future<int> getConteoAvales(String contactoId) async {
+    final r = await _client.from('avales').select().eq('contacto_id', contactoId).count(CountOption.exact);
+    return r.count;
+  }
+
+  // === RECLAMOS (derecho a réplica) ===
+
+  Future<Map<String, dynamic>> reclamarContacto(String contactoId, String mensaje, {String? reclamanteId}) async {
+    try {
+      await _client.from('reclamos').insert({'contacto_id': contactoId, 'mensaje': mensaje, 'reclamante_id': reclamanteId});
+      return {'error': null};
+    } catch (e) {
+      return {'error': e.toString()};
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getReclamosPendientes() async {
+    final r = await _client.from('reclamos').select('*, contactos(nombre, apellido, telefono)').eq('estado', 'pendiente').order('fecha');
+    return List<Map<String, dynamic>>.from(r);
+  }
+
+  Future<void> resolverReclamo(String reclamoId, String estado) async {
+    await _client.from('reclamos').update({'estado': estado}).eq('id', reclamoId);
+  }
+
+  // === TRUST SCORE ===
+
+  Future<double> getTrustScore(String identificador) async {
+    try {
+      final aprobados = await _client.from('reportes').select().or('dispositivo_id.eq.$identificador,reportado_por.eq.$identificador').eq('estado', 'revisado').count(CountOption.exact);
+      final desestimados = await _client.from('reportes').select().or('dispositivo_id.eq.$identificador,reportado_por.eq.$identificador').eq('estado', 'resuelto').count(CountOption.exact);
+      final total = aprobados.count + desestimados.count;
+      if (total == 0) return 0.5;
+      return aprobados.count / total;
+    } catch (_) {
+      return 0.5;
+    }
+  }
+
+  // === CONFIGURACIÓN ===
+
+  Future<String> getConfig(String clave, {String defaultValue = ''}) async {
+    try {
+      final r = await _client.from('configuracion').select('valor').eq('clave', clave).limit(1);
+      final list = List<Map<String, dynamic>>.from(r);
+      return list.isNotEmpty ? list.first['valor'] as String : defaultValue;
+    } catch (_) {
+      return defaultValue;
+    }
+  }
+
   // === AUTH ADMIN ===
 
   Future<bool> loginAdmin(String email, String password) async {

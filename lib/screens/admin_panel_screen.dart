@@ -4,6 +4,7 @@ import '../services/supabase_service.dart';
 import 'admins_screen.dart';
 import 'auditoria_screen.dart';
 import 'categorias_admin_screen.dart';
+import 'configuracion_screen.dart';
 import 'contactos_list_screen.dart';
 import 'exportar_screen.dart';
 import 'importar_screen.dart';
@@ -191,6 +192,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AuditoriaScreen())),
                     icon: const Icon(Icons.history, color: Colors.purple),
                     label: const Text('Auditoría'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ConfiguracionScreen())),
+                    icon: const Icon(Icons.settings, color: Colors.grey),
+                    label: const Text('Configuración (Owner)'),
                   ),
 
                   const SizedBox(height: 24),
