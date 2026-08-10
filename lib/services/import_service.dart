@@ -20,7 +20,7 @@ class ImportResult {
 }
 
 class ImportService {
-  static const _chunkSize = 100;
+  static const _chunkSize = 500;
   static const _estadosValidos = ['pendiente', 'aprobado', 'rechazado'];
 
   Future<PlatformFile?> seleccionarArchivo() async {
@@ -109,33 +109,93 @@ class ImportService {
 
       errores += chunk.length - batch.length;
 
-      // Insertar uno por uno para distinguir nuevos vs actualizados
-      for (final item in batch) {
-        try {
-          // Intentar insert primero
-          await client.from('contactos').insert(item);
-          nuevos++;
-        } catch (e) {
-          final errStr = e.toString();
-          if (errStr.contains('duplicate') || errStr.contains('unique') || errStr.contains('23505')) {
-            // Ya existe → actualizar (upsert por teléfono)
-            try {
-              await client.from('contactos')
-                  .update(item..remove('creado_desde'))
-                  .eq('telefono', item['telefono']);
-              actualizados++;
-            } catch (_) {
-              duplicados++;
+      if (batch.isEmpty) {
+        yield ImportResult(
+          procesados: (i + 1) * _chunkSize > contactos.length ? contactos.length : (i + 1) * _chunkSize,
+          nuevos: nuevos, duplicados: duplicados, errores: errores, actualizados: actualizados,
+          completado: i == chunks.length - 1, chunkActual: i + 1, totalChunks: chunks.length,
+        );
+        continue;
+      }
+
+      try {
+        // UPSERT BATCH: 1 sola request para todo el chunk
+        // onConflict: 'telefono' → si existe, actualiza todos los campos
+        // Esto hace INSERT ... ON CONFLICT (telefono) DO UPDATE SET ...
+        final response = await client.from('contactos').upsert(
+          batch,
+          onConflict: 'telefono',
+        ).select('id, telefono');
+
+        // Contar: todos los que retorna son éxitos (nuevos o actualizados)
+        // Para distinguir: comparamos con los que ya existían antes
+        // Simplificación: upsert siempre retorna los registros, asumimos que
+        // la mayoría son actualizados si la BD ya tiene datos
+        final insertados = response.length;
+        
+        // Heurística: si es la primera importación (BD vacía), son todos nuevos
+        // Si no, contamos como "procesados exitosamente" — la distinción exacta
+        // requeriría un SELECT previo que anularía la ganancia de rendimiento
+        nuevos += insertados;
+
+      } catch (e) {
+        final errStr = e.toString();
+        
+        if (errStr.contains('duplicate') || errStr.contains('unique') || errStr.contains('23505')) {
+          // Conflicto de CI (no teléfono) — hacer upsert sin CI
+          try {
+            final batchSinCi = batch.map((item) {
+              final copy = Map<String, dynamic>.from(item);
+              copy.remove('ci');
+              return copy;
+            }).toList();
+            
+            await client.from('contactos').upsert(batchSinCi, onConflict: 'telefono');
+            actualizados += batch.length;
+          } catch (_) {
+            // Último recurso: insertar uno por uno
+            for (final item in batch) {
+              try {
+                await client.from('contactos').upsert([item], onConflict: 'telefono');
+                actualizados++;
+              } catch (_) {
+                duplicados++;
+              }
             }
-          } else {
-            errores++;
           }
+        } else if (errStr.contains('timeout') || errStr.contains('SocketException') || errStr.contains('Connection')) {
+          // Error de red — guardar progreso para reintentar
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setInt('import_chunk', i);
+          await prefs.setInt('import_nuevos', nuevos);
+          await prefs.setInt('import_duplicados', duplicados);
+          await prefs.setInt('import_errores', errores);
+          await prefs.setInt('import_actualizados', actualizados);
+          await prefs.setString('import_file', file.path!);
+
+          yield ImportResult(
+            procesados: i * _chunkSize,
+            nuevos: nuevos, duplicados: duplicados, errores: errores, actualizados: actualizados,
+            errorDetalle: 'Error de conexión en chunk ${i + 1}/${chunks.length}. Puedes reintentar.',
+            completado: false, chunkActual: i, totalChunks: chunks.length,
+          );
+          return;
+        } else {
+          // Error desconocido — loguear y continuar
+          errores += batch.length;
         }
       }
 
-      // Guardar progreso
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('import_actualizados', actualizados);
+      // Guardar progreso periódicamente
+      if (i % 5 == 0) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt('import_chunk', i);
+        await prefs.setInt('import_nuevos', nuevos);
+        await prefs.setInt('import_duplicados', duplicados);
+        await prefs.setInt('import_errores', errores);
+        await prefs.setInt('import_actualizados', actualizados);
+        await prefs.setString('import_file', file.path!);
+      }
 
       yield ImportResult(
         procesados: (i + 1) * _chunkSize > contactos.length ? contactos.length : (i + 1) * _chunkSize,
