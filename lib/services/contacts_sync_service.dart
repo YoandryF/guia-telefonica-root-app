@@ -118,4 +118,37 @@ class ContactsSyncService {
       return 0;
     }
   }
+
+  /// Eliminar con progreso (Stream) — elimina uno por uno para mostrar avance
+  Stream<SyncProgress> removeContactosStream(List<Contacto> contactos) async* {
+    int removed = 0, errors = 0;
+    final total = contactos.length;
+
+    for (var i = 0; i < contactos.length; i++) {
+      final c = contactos[i];
+      try {
+        await _channel.invokeMethod('removeContact', {
+          'nombre': c.nombre,
+          'apellido': c.apellido,
+          'telefono': c.telefono,
+        });
+        removed++;
+      } catch (_) {
+        errors++;
+      }
+
+      if (i % 5 == 0 || i == contactos.length - 1) {
+        yield SyncProgress(
+          total: total,
+          procesados: i + 1,
+          created: removed,
+          updated: 0,
+          exists: 0,
+          errors: errors,
+          contactoActual: '${c.nombre} ${c.apellido}',
+          completado: i == contactos.length - 1,
+        );
+      }
+    }
+  }
 }

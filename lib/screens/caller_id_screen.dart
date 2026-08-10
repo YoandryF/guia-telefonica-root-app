@@ -24,7 +24,8 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
   bool _sincronizando = false;
   bool _seleccionTodos = false;
   SyncProgress? _progreso;
-  String _modo = 'inicio'; // inicio, seleccion, sincronizando, completado
+  String _modo = 'inicio'; // inicio, seleccion, sincronizando, eliminando, completado, completado_eliminar
+  String _accionPendiente = 'sync'; // sync o eliminar
 
   @override
   void initState() {
@@ -105,7 +106,12 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
     if (!await _pedirPermiso()) return;
 
     final seleccionados = _contactos.where((c) => _seleccionados.contains(c.id)).toList();
-    _iniciarSync(seleccionados);
+
+    if (_accionPendiente == 'eliminar') {
+      _iniciarEliminacion(seleccionados);
+    } else {
+      _iniciarSync(seleccionados);
+    }
   }
 
   void _iniciarSync(List<Contacto> contactos) {
@@ -144,27 +150,74 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('¿Eliminar contactos sincronizados?'),
-        content: const Text('Se eliminarán todos los contactos de "Guía Telefónica" de tu agenda. Tus contactos personales no se tocan.'),
+        title: const Text('¿Eliminar contactos de la agenda?'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Se eliminarán los contactos de "Guía Telefónica" de tu agenda. Tus contactos personales no se tocan.'),
+          const SizedBox(height: 16),
+          Row(children: [
+            Expanded(child: OutlinedButton(
+              onPressed: () => Navigator.pop(ctx, null), // null = elegir
+              child: const Text('Elegir cuáles'),
+            )),
+            const SizedBox(width: 8),
+            Expanded(child: FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('Todos'),
+            )),
+          ]),
+        ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Eliminar'),
-          ),
         ],
       ),
     );
 
-    if (confirmar != true) return;
+    if (confirmar == false) return;
 
-    final count = await _syncService.removeAll();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('🗑️ $count contactos eliminados de la agenda')),
-      );
+    if (!await _pedirPermiso()) return;
+
+    if (confirmar == null) {
+      // Modo selección para eliminar
+      setState(() {
+        _modo = 'seleccion';
+        _accionPendiente = 'eliminar';
+      });
+      return;
     }
+
+    // Eliminar todos con progreso
+    _iniciarEliminacion(_contactos);
+  }
+
+  void _iniciarEliminacion(List<Contacto> contactos) {
+    setState(() {
+      _sincronizando = true;
+      _progreso = null;
+      _modo = 'eliminando';
+    });
+
+    _syncService.removeContactosStream(contactos).listen(
+      (progress) {
+        if (mounted) setState(() => _progreso = progress);
+      },
+      onDone: () {
+        if (mounted) {
+          setState(() {
+            _sincronizando = false;
+            _modo = 'completado_eliminar';
+          });
+        }
+      },
+      onError: (_) {
+        if (mounted) {
+          setState(() {
+            _sincronizando = false;
+            _modo = 'completado_eliminar';
+          });
+        }
+      },
+    );
   }
 
   @override
@@ -190,9 +243,13 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
   Widget _buildBody() {
     switch (_modo) {
       case 'sincronizando':
-        return _buildProgreso();
+        return _buildProgreso(eliminando: false);
+      case 'eliminando':
+        return _buildProgreso(eliminando: true);
       case 'completado':
-        return _buildResultado();
+        return _buildResultado(eliminando: false);
+      case 'completado_eliminar':
+        return _buildResultado(eliminando: true);
       case 'seleccion':
         return _buildSeleccion();
       default:
@@ -335,17 +392,17 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
     );
   }
 
-  Widget _buildProgreso() {
+  Widget _buildProgreso({required bool eliminando}) {
     final p = _progreso;
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.sync, size: 64, color: Color(0xFF0284C7)),
+          Icon(eliminando ? Icons.delete_sweep : Icons.sync, size: 64, color: eliminando ? Colors.red : const Color(0xFF0284C7)),
           const SizedBox(height: 24),
           Text(
-            'Sincronizando con tu agenda...',
+            eliminando ? 'Eliminando de tu agenda...' : 'Sincronizando con tu agenda...',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 24),
@@ -357,6 +414,7 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
               value: p?.progreso ?? 0,
               minHeight: 14,
               backgroundColor: Colors.grey[200],
+              color: eliminando ? Colors.red : null,
             ),
           ),
           const SizedBox(height: 12),
@@ -384,12 +442,17 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
               spacing: 12,
               runSpacing: 8,
               alignment: WrapAlignment.center,
-              children: [
-                _statChip('🆕 ${p.created}', 'nuevos', Colors.green),
-                _statChip('📝 ${p.updated}', 'actualizados', Colors.blue),
-                _statChip('✓ ${p.exists}', 'existentes', Colors.grey),
-                if (p.errors > 0) _statChip('❌ ${p.errors}', 'errores', Colors.red),
-              ],
+              children: eliminando
+                  ? [
+                      _statChip('🗑️ ${p.created}', 'eliminados', Colors.red),
+                      if (p.errors > 0) _statChip('❌ ${p.errors}', 'errores', Colors.orange),
+                    ]
+                  : [
+                      _statChip('🆕 ${p.created}', 'nuevos', Colors.green),
+                      _statChip('📝 ${p.updated}', 'actualizados', Colors.blue),
+                      _statChip('✓ ${p.exists}', 'existentes', Colors.grey),
+                      if (p.errors > 0) _statChip('❌ ${p.errors}', 'errores', Colors.red),
+                    ],
             ),
 
           const SizedBox(height: 24),
@@ -402,35 +465,46 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
     );
   }
 
-  Widget _buildResultado() {
+  Widget _buildResultado({required bool eliminando}) {
     final p = _progreso;
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.check_circle, size: 64, color: Colors.green),
+          Icon(
+            eliminando ? Icons.delete_forever : Icons.check_circle,
+            size: 64,
+            color: eliminando ? Colors.red : Colors.green,
+          ),
           const SizedBox(height: 16),
           Text(
-            '✅ Sincronización completada',
+            eliminando ? '🗑️ Eliminación completada' : '✅ Sincronización completada',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 24),
 
           if (p != null)
             Card(
-              color: Colors.green.withOpacity(0.05),
+              color: (eliminando ? Colors.red : Colors.green).withOpacity(0.05),
               child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(
-                  children: [
-                    _resultRow('🆕 Nuevos en agenda', p.created),
-                    _resultRow('📝 Actualizados', p.updated),
-                    _resultRow('✓ Ya existían', p.exists),
-                    if (p.errors > 0) _resultRow('❌ Errores', p.errors),
-                    const Divider(),
-                    _resultRow('📊 Total procesados', p.procesados),
-                  ],
+                  children: eliminando
+                      ? [
+                          _resultRow('🗑️ Eliminados', p.created),
+                          if (p.errors > 0) _resultRow('❌ Errores', p.errors),
+                          const Divider(),
+                          _resultRow('📊 Total procesados', p.procesados),
+                        ]
+                      : [
+                          _resultRow('🆕 Nuevos en agenda', p.created),
+                          _resultRow('📝 Actualizados', p.updated),
+                          _resultRow('✓ Ya existían', p.exists),
+                          if (p.errors > 0) _resultRow('❌ Errores', p.errors),
+                          const Divider(),
+                          _resultRow('📊 Total procesados', p.procesados),
+                        ],
                 ),
               ),
             ),
@@ -441,6 +515,7 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
               _modo = 'inicio';
               _progreso = null;
               _seleccionados.clear();
+              _accionPendiente = 'sync';
             }),
             icon: const Icon(Icons.arrow_back),
             label: const Text('Volver'),
@@ -465,6 +540,7 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
                   _seleccionados.clear();
                   _searchCtrl.clear();
                   _filtrar('');
+                  _accionPendiente = 'sync';
                 }),
                 child: const Text('Cancelar'),
               ),
@@ -474,8 +550,11 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
               flex: 2,
               child: FilledButton.icon(
                 onPressed: _seleccionados.isEmpty ? null : _sincronizarSeleccionados,
-                icon: const Icon(Icons.sync),
-                label: Text('Sincronizar (${_seleccionados.length})'),
+                icon: Icon(_accionPendiente == 'eliminar' ? Icons.delete : Icons.sync),
+                label: Text('${_accionPendiente == 'eliminar' ? 'Eliminar' : 'Sincronizar'} (${_seleccionados.length})'),
+                style: _accionPendiente == 'eliminar'
+                    ? FilledButton.styleFrom(backgroundColor: Colors.red)
+                    : null,
               ),
             ),
           ],
