@@ -42,9 +42,12 @@ class SupabaseService {
     String? ci,
     String? categoriaId,
     String? dispositivoId,
+    String? pais,
+    String? provincia,
+    String? municipio,
   }) async {
     try {
-      final response = await _client.from('contactos').insert({
+      final data = <String, dynamic>{
         'nombre': nombre,
         'apellido': apellido,
         'telefono': telefono,
@@ -54,7 +57,12 @@ class SupabaseService {
         'estado': 'pendiente',
         'creado_desde': 'app',
         'dispositivo_id': dispositivoId,
-      }).select();
+      };
+      if (provincia != null) data['provincia'] = provincia;
+      if (municipio != null) data['municipio'] = municipio;
+      if (pais != null) data['pais'] = pais;
+
+      final response = await _client.from('contactos').insert(data).select();
 
       return {'data': response.first, 'error': null};
     } catch (e) {
@@ -128,7 +136,9 @@ class SupabaseService {
         'nombre.ilike.%$query%,'
         'apellido.ilike.%$query%,'
         'telefono.ilike.%$query%,'
-        'ci.ilike.%$query%',
+        'ci.ilike.%$query%,'
+        'provincia.ilike.%$query%,'
+        'municipio.ilike.%$query%',
       );
     }
 
