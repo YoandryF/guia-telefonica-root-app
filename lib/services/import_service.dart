@@ -20,6 +20,7 @@ class ImportResult {
 
 class ImportService {
   static const _chunkSize = 100;
+  static const _estadosValidos = ['pendiente', 'aprobado', 'rechazado'];
 
   Future<PlatformFile?> seleccionarArchivo() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['csv', 'json']);
@@ -74,17 +75,35 @@ class ImportService {
         (c['nombre'] ?? '').length >= 2 &&
         (c['apellido'] ?? '').length >= 2 &&
         (c['telefono'] ?? '').length >= 5
-      ).map((c) => <String, dynamic>{
-        'nombre': c['nombre']!,
-        'apellido': c['apellido']!,
-        'telefono': c['telefono']!,
-        'direccion': c['direccion']?.isNotEmpty == true ? c['direccion'] : null,
-        'ci': c['ci']?.isNotEmpty == true ? c['ci'] : null,
-        'provincia': c['provincia']?.isNotEmpty == true ? c['provincia'] : null,
-        'municipio': c['municipio']?.isNotEmpty == true ? c['municipio'] : null,
-        'pais': c['pais']?.isNotEmpty == true ? c['pais'] : null,
-        'estado': 'pendiente',
-        'creado_desde': 'app',
+      ).map((c) {
+        // Respetar estado del archivo si viene y es válido
+        final estadoArchivo = c['estado']?.toLowerCase().trim();
+        final estado = _estadosValidos.contains(estadoArchivo) ? estadoArchivo! : 'pendiente';
+
+        final item = <String, dynamic>{
+          'nombre': c['nombre']!,
+          'apellido': c['apellido']!,
+          'telefono': c['telefono']!,
+          'direccion': c['direccion']?.isNotEmpty == true ? c['direccion'] : null,
+          'ci': c['ci']?.isNotEmpty == true ? c['ci'] : null,
+          'provincia': c['provincia']?.isNotEmpty == true ? c['provincia'] : null,
+          'municipio': c['municipio']?.isNotEmpty == true ? c['municipio'] : null,
+          'pais': c['pais']?.isNotEmpty == true ? c['pais'] : null,
+          'estado': estado,
+          'creado_desde': 'app',
+        };
+
+        // Si el estado es aprobado, incluir fecha_aprobacion
+        if (estado == 'aprobado') {
+          final fechaArchivo = c['fecha_aprobacion'];
+          if (fechaArchivo != null && fechaArchivo.isNotEmpty) {
+            item['fecha_aprobacion'] = fechaArchivo;
+          } else {
+            item['fecha_aprobacion'] = DateTime.now().toIso8601String();
+          }
+        }
+
+        return item;
       }).toList();
 
       errores += chunk.length - batch.length;
