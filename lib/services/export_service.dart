@@ -9,10 +9,11 @@ import '../models/contacto.dart';
 
 class ExportService {
   Future<void> exportarCSV(List<Contacto> contactos) async {
-    final header = ['nombre', 'apellido', 'telefono', 'direccion', 'ci', 'categoria', 'provincia', 'municipio', 'pais'];
+    final header = ['nombre', 'apellido', 'telefono', 'direccion', 'ci', 'categoria', 'provincia', 'municipio', 'pais', 'estado', 'fecha_aprobacion'];
     final rows = contactos.map((c) => [
       c.nombre, c.apellido, c.telefono, c.direccion ?? '', c.ci ?? '',
       c.categoriaNombre ?? '', c.provincia ?? '', c.municipio ?? '', c.pais ?? 'Cuba',
+      c.estado, c.fechaAprobacion?.toIso8601String() ?? '',
     ]).toList();
 
     final csv = const ListToCsvConverter().convert([header, ...rows]);
@@ -25,11 +26,12 @@ class ExportService {
 
   Future<void> exportarJSON(List<Contacto> contactos) async {
     final data = {
-      'metadatos': {'version': '1.1', 'fecha': DateTime.now().toIso8601String(), 'total': contactos.length},
+      'metadatos': {'version': '1.2', 'fecha': DateTime.now().toIso8601String(), 'total': contactos.length},
       'contactos': contactos.map((c) => {
         'nombre': c.nombre, 'apellido': c.apellido, 'telefono': c.telefono,
         'direccion': c.direccion, 'ci': c.ci, 'categoria': c.categoriaNombre,
         'provincia': c.provincia, 'municipio': c.municipio, 'pais': c.pais,
+        'estado': c.estado, 'fecha_aprobacion': c.fechaAprobacion?.toIso8601String(),
       }).toList(),
     };
 
