@@ -10,12 +10,13 @@ class ImportResult {
   final int nuevos;
   final int duplicados;
   final int errores;
+  final int actualizados;
   final String? errorDetalle;
   final bool completado;
   final int chunkActual;
   final int totalChunks;
 
-  ImportResult({this.procesados = 0, this.nuevos = 0, this.duplicados = 0, this.errores = 0, this.errorDetalle, this.completado = true, this.chunkActual = 0, this.totalChunks = 0});
+  ImportResult({this.procesados = 0, this.nuevos = 0, this.duplicados = 0, this.errores = 0, this.actualizados = 0, this.errorDetalle, this.completado = true, this.chunkActual = 0, this.totalChunks = 0});
 }
 
 class ImportService {
@@ -59,7 +60,7 @@ class ImportService {
       chunks.add(contactos.sublist(i, i + _chunkSize > contactos.length ? contactos.length : i + _chunkSize));
     }
 
-    int nuevos = 0, duplicados = 0, errores = 0;
+    int nuevos = 0, duplicados = 0, errores = 0, actualizados = 0;
     final client = Supabase.instance.client;
 
     if (desdeChunk > 0) {
@@ -67,6 +68,7 @@ class ImportService {
       nuevos = prefs.getInt('import_nuevos') ?? 0;
       duplicados = prefs.getInt('import_duplicados') ?? 0;
       errores = prefs.getInt('import_errores') ?? 0;
+      actualizados = prefs.getInt('import_actualizados') ?? 0;
     }
 
     for (var i = desdeChunk; i < chunks.length; i++) {
@@ -76,7 +78,6 @@ class ImportService {
         (c['apellido'] ?? '').length >= 2 &&
         (c['telefono'] ?? '').length >= 5
       ).map((c) {
-        // Respetar estado del archivo si viene y es válido
         final estadoArchivo = c['estado']?.toLowerCase().trim();
         final estado = _estadosValidos.contains(estadoArchivo) ? estadoArchivo! : 'pendiente';
 
@@ -91,9 +92,9 @@ class ImportService {
           'pais': c['pais']?.isNotEmpty == true ? c['pais'] : null,
           'estado': estado,
           'creado_desde': 'app',
+          'ultima_modificacion': DateTime.now().toIso8601String(),
         };
 
-        // Si el estado es aprobado, incluir fecha_aprobacion
         if (estado == 'aprobado') {
           final fechaArchivo = c['fecha_aprobacion'];
           if (fechaArchivo != null && fechaArchivo.isNotEmpty) {
@@ -108,47 +109,40 @@ class ImportService {
 
       errores += chunk.length - batch.length;
 
-      try {
-        await client.from('contactos').upsert(batch, onConflict: 'telefono', ignoreDuplicates: true);
-        nuevos += batch.length;
-      } catch (e) {
-        final errStr = e.toString();
-        if (errStr.contains('duplicate') || errStr.contains('unique') || errStr.contains('23505')) {
-          for (final item in batch) {
+      // Insertar uno por uno para distinguir nuevos vs actualizados
+      for (final item in batch) {
+        try {
+          // Intentar insert primero
+          await client.from('contactos').insert(item);
+          nuevos++;
+        } catch (e) {
+          final errStr = e.toString();
+          if (errStr.contains('duplicate') || errStr.contains('unique') || errStr.contains('23505')) {
+            // Ya existe → actualizar (upsert por teléfono)
             try {
-              await client.from('contactos').insert(item);
-              nuevos++;
+              await client.from('contactos')
+                  .update(item..remove('creado_desde'))
+                  .eq('telefono', item['telefono']);
+              actualizados++;
             } catch (_) {
               duplicados++;
             }
+          } else {
+            errores++;
           }
-        } else {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setInt('import_chunk', i);
-          await prefs.setInt('import_nuevos', nuevos);
-          await prefs.setInt('import_duplicados', duplicados);
-          await prefs.setInt('import_errores', errores);
-          await prefs.setString('import_file', file.path!);
-
-          yield ImportResult(
-            procesados: i * _chunkSize,
-            nuevos: nuevos,
-            duplicados: duplicados,
-            errores: errores,
-            errorDetalle: 'Error en chunk ${i + 1}/${chunks.length}: $e',
-            completado: false,
-            chunkActual: i,
-            totalChunks: chunks.length,
-          );
-          return;
         }
       }
+
+      // Guardar progreso
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('import_actualizados', actualizados);
 
       yield ImportResult(
         procesados: (i + 1) * _chunkSize > contactos.length ? contactos.length : (i + 1) * _chunkSize,
         nuevos: nuevos,
         duplicados: duplicados,
         errores: errores,
+        actualizados: actualizados,
         completado: i == chunks.length - 1,
         chunkActual: i + 1,
         totalChunks: chunks.length,
@@ -160,6 +154,7 @@ class ImportService {
     await prefs.remove('import_nuevos');
     await prefs.remove('import_duplicados');
     await prefs.remove('import_errores');
+    await prefs.remove('import_actualizados');
     await prefs.remove('import_file');
   }
 
@@ -173,6 +168,7 @@ class ImportService {
       'nuevos': prefs.getInt('import_nuevos') ?? 0,
       'duplicados': prefs.getInt('import_duplicados') ?? 0,
       'errores': prefs.getInt('import_errores') ?? 0,
+      'actualizados': prefs.getInt('import_actualizados') ?? 0,
     };
   }
 
@@ -182,6 +178,7 @@ class ImportService {
     await prefs.remove('import_nuevos');
     await prefs.remove('import_duplicados');
     await prefs.remove('import_errores');
+    await prefs.remove('import_actualizados');
     await prefs.remove('import_file');
   }
 
