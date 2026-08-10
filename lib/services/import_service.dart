@@ -92,14 +92,43 @@ class ImportService {
       errores += chunk.length - batch.length;
 
       try {
-        final response = await client.from('contactos').upsert(
-          batch,
-          onConflict: 'telefono',
-          ignoreDuplicates: true,
-        ).select();
-
+        // Intentar batch primero (rápido)
+        final response = await client.from('contactos').insert(batch).select();
         nuevos += response.length;
-        duplicados += batch.length - response.length;
+      } catch (batchErr) {
+        // Si falla batch (duplicados), procesar individualmente
+        for (final item in batch) {
+          try {
+            await client.from('contactos').insert(item).select();
+            nuevos++;
+          } catch (insertErr) {
+            final errStr = insertErr.toString();
+            if (errStr.contains('duplicate') || errStr.contains('unique') || errStr.contains('23505')) {
+              final telefono = item['telefono'] as String?;
+              List existentes = [];
+              if (telefono != null) {
+                existentes = await client.from('contactos').select().eq('telefono', telefono);
+              }
+              if (existentes.isNotEmpty) {
+                final existente = existentes.first as Map<String, dynamic>;
+                final hayDiferencia = (item['nombre'] != existente['nombre']) ||
+                    (item['apellido'] != existente['apellido']) ||
+                    (item['direccion'] != existente['direccion']) ||
+                    (item['ci'] != existente['ci']);
+                if (hayDiferencia) {
+                  final prefs = await SharedPreferences.getInstance();
+                  final conflictos = prefs.getStringList('import_conflictos') ?? [];
+                  conflictos.add('\${item["telefono"]}|\${item["nombre"]}|\${item["apellido"]}|\${item["direccion"] ?? ""}');
+                  await prefs.setStringList('import_conflictos', conflictos);
+                }
+              }
+              duplicados++;
+            } else {
+              errores++;
+            }
+          }
+        }
+      }
       } catch (e) {
         // Error de conexión — guardar progreso y parar
         final prefs = await SharedPreferences.getInstance();
