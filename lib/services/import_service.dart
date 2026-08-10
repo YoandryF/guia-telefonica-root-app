@@ -20,7 +20,6 @@ class ImportResult {
 
 class ImportService {
   static const _chunkSize = 100;
-  static const _prefKey = 'import_progress';
 
   Future<PlatformFile?> seleccionarArchivo() async {
     final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['csv', 'json']);
@@ -41,7 +40,6 @@ class ImportService {
     return 0;
   }
 
-  /// Importar con batch, progreso y capacidad de reintentar
   Stream<ImportResult> importarStream(PlatformFile file, {int desdeChunk = 0}) async* {
     final contenido = await File(file.path!).readAsString();
     List<Map<String, String>> contactos;
@@ -63,7 +61,6 @@ class ImportService {
     int nuevos = 0, duplicados = 0, errores = 0;
     final client = Supabase.instance.client;
 
-    // Si reiniciamos, sumar lo anterior
     if (desdeChunk > 0) {
       final prefs = await SharedPreferences.getInstance();
       nuevos = prefs.getInt('import_nuevos') ?? 0;
@@ -73,8 +70,6 @@ class ImportService {
 
     for (var i = desdeChunk; i < chunks.length; i++) {
       final chunk = chunks[i];
-
-      // Preparar batch
       final batch = chunk.where((c) =>
         (c['nombre'] ?? '').length >= 2 &&
         (c['apellido'] ?? '').length >= 2 &&
@@ -92,66 +87,43 @@ class ImportService {
       errores += chunk.length - batch.length;
 
       try {
-        // Intentar batch primero (rápido)
-        final response = await client.from('contactos').insert(batch).select();
-        nuevos += response.length;
-      } catch (batchErr) {
-        // Si falla batch (duplicados), procesar individualmente
-        for (final item in batch) {
-          try {
-            await client.from('contactos').insert(item).select();
-            nuevos++;
-          } catch (insertErr) {
-            final errStr = insertErr.toString();
-            if (errStr.contains('duplicate') || errStr.contains('unique') || errStr.contains('23505')) {
-              final telefono = item['telefono'] as String?;
-              List existentes = [];
-              if (telefono != null) {
-                existentes = await client.from('contactos').select().eq('telefono', telefono);
-              }
-              if (existentes.isNotEmpty) {
-                final existente = existentes.first as Map<String, dynamic>;
-                final hayDiferencia = (item['nombre'] != existente['nombre']) ||
-                    (item['apellido'] != existente['apellido']) ||
-                    (item['direccion'] != existente['direccion']) ||
-                    (item['ci'] != existente['ci']);
-                if (hayDiferencia) {
-                  final prefs = await SharedPreferences.getInstance();
-                  final conflictos = prefs.getStringList('import_conflictos') ?? [];
-                  conflictos.add('\${item["telefono"]}|\${item["nombre"]}|\${item["apellido"]}|\${item["direccion"] ?? ""}');
-                  await prefs.setStringList('import_conflictos', conflictos);
-                }
-              }
+        await client.from('contactos').upsert(batch, onConflict: 'telefono', ignoreDuplicates: true);
+        nuevos += batch.length;
+      } catch (e) {
+        final errStr = e.toString();
+        if (errStr.contains('duplicate') || errStr.contains('unique') || errStr.contains('23505')) {
+          // Chunk tiene duplicados de CI - insertar uno por uno
+          for (final item in batch) {
+            try {
+              await client.from('contactos').insert(item);
+              nuevos++;
+            } catch (_) {
               duplicados++;
-            } else {
-              errores++;
             }
           }
+        } else {
+          // Error de conexión - guardar progreso
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setInt('import_chunk', i);
+          await prefs.setInt('import_nuevos', nuevos);
+          await prefs.setInt('import_duplicados', duplicados);
+          await prefs.setInt('import_errores', errores);
+          await prefs.setString('import_file', file.path!);
+
+          yield ImportResult(
+            procesados: i * _chunkSize,
+            nuevos: nuevos,
+            duplicados: duplicados,
+            errores: errores,
+            errorDetalle: 'Error en chunk ${i + 1}/${chunks.length}: $e',
+            completado: false,
+            chunkActual: i,
+            totalChunks: chunks.length,
+          );
+          return;
         }
       }
-      } catch (e) {
-        // Error de conexión — guardar progreso y parar
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setInt('import_chunk', i);
-        await prefs.setInt('import_nuevos', nuevos);
-        await prefs.setInt('import_duplicados', duplicados);
-        await prefs.setInt('import_errores', errores);
-        await prefs.setString('import_file', file.path!);
 
-        yield ImportResult(
-          procesados: i * _chunkSize,
-          nuevos: nuevos,
-          duplicados: duplicados,
-          errores: errores,
-          errorDetalle: 'Error en chunk ${i + 1}/${chunks.length}: $e',
-          completado: false,
-          chunkActual: i,
-          totalChunks: chunks.length,
-        );
-        return;
-      }
-
-      // Emitir progreso
       yield ImportResult(
         procesados: (i + 1) * _chunkSize > contactos.length ? contactos.length : (i + 1) * _chunkSize,
         nuevos: nuevos,
@@ -163,7 +135,6 @@ class ImportService {
       );
     }
 
-    // Limpiar progreso guardado
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('import_chunk');
     await prefs.remove('import_nuevos');
@@ -172,7 +143,6 @@ class ImportService {
     await prefs.remove('import_file');
   }
 
-  /// Verificar si hay importación pendiente de reintentar
   Future<Map<String, dynamic>?> getImportPendiente() async {
     final prefs = await SharedPreferences.getInstance();
     final chunk = prefs.getInt('import_chunk');
