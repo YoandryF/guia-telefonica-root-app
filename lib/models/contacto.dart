@@ -17,6 +17,9 @@ class Contacto {
   final String? categoriaIcono;
   final bool tieneReportes;
   final bool reporteConfirmado;
+  final String? pais;
+  final String? provincia;
+  final String? municipio;
 
   Contacto({
     required this.id,
@@ -36,6 +39,9 @@ class Contacto {
     this.categoriaIcono,
     this.tieneReportes = false,
     this.reporteConfirmado = false,
+    this.pais,
+    this.provincia,
+    this.municipio,
   });
 
   factory Contacto.fromJson(Map<String, dynamic> json) {
@@ -62,6 +68,9 @@ class Contacto {
       categoriaIcono: categoria?['icono'] as String?,
       tieneReportes: (json['tiene_reportes'] == 1 || json['tiene_reportes'] == true),
       reporteConfirmado: (json['reporte_confirmado'] == 1 || json['reporte_confirmado'] == true),
+      pais: json['pais'] as String?,
+      provincia: json['provincia'] as String?,
+      municipio: json['municipio'] as String?,
     );
   }
 
@@ -75,7 +84,18 @@ class Contacto {
         'creado_por': creadoPor,
         'creado_desde': creadoDesde,
         'categoria_id': categoriaId,
+        'pais': pais,
+        'provincia': provincia,
+        'municipio': municipio,
       };
 
   String get nombreCompleto => '$nombre $apellido';
+
+  String? get ubicacionCompleta {
+    final partes = <String>[];
+    if (municipio != null && municipio!.isNotEmpty) partes.add(municipio!);
+    if (provincia != null && provincia!.isNotEmpty) partes.add(provincia!);
+    if (pais != null && pais!.isNotEmpty && pais != 'Cuba') partes.add(pais!);
+    return partes.isNotEmpty ? partes.join(', ') : null;
+  }
 }
