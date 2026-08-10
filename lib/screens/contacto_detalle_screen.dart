@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../models/contacto.dart';
 import '../services/local_database_service.dart';
 import '../services/supabase_service.dart';
+import 'verificacion_telegram_screen.dart';
 
 class ContactoDetalleScreen extends StatefulWidget {
   final Contacto contacto;
@@ -203,7 +204,14 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
   }
 
   Future<void> _avalar() async {
-    final result = await SupabaseService().avalarContacto(widget.contacto.id);
+    // Requiere verificación Telegram
+    final identity = await requiereVerificacion(context);
+    if (identity == null) return;
+
+    final result = await SupabaseService().avalarContacto(
+      widget.contacto.id,
+      telegramUserId: identity.userId,
+    );
     if (!mounted) return;
     if (result['error'] == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('👍 Aval registrado. Gracias.')));
@@ -213,6 +221,10 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
   }
 
   Future<void> _reclamar() async {
+    // Requiere verificación Telegram
+    final identity = await requiereVerificacion(context);
+    if (identity == null) return;
+
     final ctrl = TextEditingController();
     final msg = await showDialog<String>(
       context: context,
@@ -230,7 +242,10 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
       ),
     );
     if (msg == null || msg.isEmpty) return;
-    final result = await SupabaseService().reclamarContacto(widget.contacto.id, msg);
+    final result = await SupabaseService().reclamarContacto(
+      widget.contacto.id, msg,
+      reclamanteId: identity.userId,
+    );
     if (!mounted) return;
     if (result['error'] == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚖️ Reclamo enviado. Un admin lo revisará.')));
@@ -241,6 +256,10 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
 
 
   Future<void> _reportar() async {
+    // Requiere verificación Telegram
+    final identity = await requiereVerificacion(context);
+    if (identity == null) return; // Canceló o no verificó
+
     final motivos = [
       {'value': 'numero_incorrecto', 'label': '📞 Número incorrecto'},
       {'value': 'no_existe', 'label': '❌ Ya no existe'},
@@ -296,6 +315,7 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
       contactoId: widget.contacto.id,
       motivo: motivoSeleccionado!,
       descripcion: descripcionCtrl.text.isNotEmpty ? descripcionCtrl.text : null,
+      telegramUserId: identity.userId,
     );
 
     if (mounted) {

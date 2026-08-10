@@ -245,6 +245,7 @@ class SupabaseService {
     required String motivo,
     String? descripcion,
     String? dispositivoId,
+    String? telegramUserId,
   }) async {
     try {
       final result = await _client.rpc('insertar_reporte', params: {
@@ -253,6 +254,7 @@ class SupabaseService {
         'p_descripcion': descripcion,
         'p_reportado_desde': 'app',
         'p_dispositivo_id': dispositivoId,
+        'p_telegram_user_id': telegramUserId,
       });
       final status = result.toString();
       if (status == 'OK') return {'error': null};
@@ -368,9 +370,13 @@ class SupabaseService {
 
   // === AVALES (contra-reportes positivos) ===
 
-  Future<Map<String, dynamic>> avalarContacto(String contactoId, {String? dispositivoId}) async {
+  Future<Map<String, dynamic>> avalarContacto(String contactoId, {String? dispositivoId, String? telegramUserId}) async {
     try {
-      await _client.from('avales').insert({'contacto_id': contactoId, 'dispositivo_id': dispositivoId});
+      await _client.from('avales').insert({
+        'contacto_id': contactoId,
+        'dispositivo_id': dispositivoId,
+        'avalado_por': telegramUserId,
+      });
       return {'error': null};
     } catch (e) {
       if (e.toString().contains('duplicate')) return {'error': 'Ya avalaste este contacto'};
