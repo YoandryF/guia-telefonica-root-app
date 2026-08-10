@@ -17,7 +17,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -55,6 +55,13 @@ class LocalDatabaseService {
     if (oldVersion < 5) {
       await db.execute('ALTER TABLE contactos_aprobados ADD COLUMN reporte_confirmado INTEGER DEFAULT 0');
     }
+    if (oldVersion < 6) {
+      await db.execute('ALTER TABLE contactos_aprobados ADD COLUMN pais TEXT');
+      await db.execute('ALTER TABLE contactos_aprobados ADD COLUMN provincia TEXT');
+      await db.execute('ALTER TABLE contactos_aprobados ADD COLUMN municipio TEXT');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_ca_provincia ON contactos_aprobados(provincia)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_ca_municipio ON contactos_aprobados(municipio)');
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -71,7 +78,11 @@ class LocalDatabaseService {
         categoria_icono TEXT,
         fecha_creacion TEXT,
         fecha_aprobacion TEXT,
-        tiene_reportes INTEGER DEFAULT 0
+        tiene_reportes INTEGER DEFAULT 0,
+        reporte_confirmado INTEGER DEFAULT 0,
+        pais TEXT,
+        provincia TEXT,
+        municipio TEXT
       )
     ''');
 
@@ -94,6 +105,8 @@ class LocalDatabaseService {
     await db.execute('CREATE INDEX idx_ca_nombre ON contactos_aprobados(nombre)');
     await db.execute('CREATE INDEX idx_ca_telefono ON contactos_aprobados(telefono)');
     await db.execute('CREATE INDEX idx_ca_ci ON contactos_aprobados(ci)');
+    await db.execute('CREATE INDEX idx_ca_provincia ON contactos_aprobados(provincia)');
+    await db.execute('CREATE INDEX idx_ca_municipio ON contactos_aprobados(municipio)');
 
     await db.execute('''
       CREATE TABLE recientes (
@@ -123,8 +136,30 @@ class LocalDatabaseService {
     final db = await database;
     final maps = await db.query(
       'contactos_aprobados',
-      where: 'nombre LIKE ? OR apellido LIKE ? OR telefono LIKE ? OR ci LIKE ?',
-      whereArgs: ['%$query%', '%$query%', '%$query%', '%$query%'],
+      where: 'nombre LIKE ? OR apellido LIKE ? OR telefono LIKE ? OR ci LIKE ? OR provincia LIKE ? OR municipio LIKE ?',
+      whereArgs: ['%$query%', '%$query%', '%$query%', '%$query%', '%$query%', '%$query%'],
+      orderBy: 'nombre ASC',
+    );
+    return maps.map((m) => Contacto.fromJson(m)).toList();
+  }
+
+  Future<List<Contacto>> filtrarPorProvincia(String provincia) async {
+    final db = await database;
+    final maps = await db.query(
+      'contactos_aprobados',
+      where: 'provincia = ?',
+      whereArgs: [provincia],
+      orderBy: 'nombre ASC',
+    );
+    return maps.map((m) => Contacto.fromJson(m)).toList();
+  }
+
+  Future<List<Contacto>> filtrarPorMunicipio(String municipio) async {
+    final db = await database;
+    final maps = await db.query(
+      'contactos_aprobados',
+      where: 'municipio = ?',
+      whereArgs: [municipio],
       orderBy: 'nombre ASC',
     );
     return maps.map((m) => Contacto.fromJson(m)).toList();
@@ -146,6 +181,9 @@ class LocalDatabaseService {
         'categoria_icono': contacto.categoriaIcono,
         'fecha_creacion': contacto.fechaCreacion?.toIso8601String(),
         'fecha_aprobacion': contacto.fechaAprobacion?.toIso8601String(),
+        'pais': contacto.pais,
+        'provincia': contacto.provincia,
+        'municipio': contacto.municipio,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -169,6 +207,9 @@ class LocalDatabaseService {
           'categoria_icono': contacto.categoriaIcono,
           'fecha_creacion': contacto.fechaCreacion?.toIso8601String(),
           'fecha_aprobacion': contacto.fechaAprobacion?.toIso8601String(),
+          'pais': contacto.pais,
+          'provincia': contacto.provincia,
+          'municipio': contacto.municipio,
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
