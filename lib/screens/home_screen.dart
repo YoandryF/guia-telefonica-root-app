@@ -59,21 +59,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _initVoz() async {
-    _vozDisponible = await _speech.initialize(
-      onStatus: (status) {
-        if (status == 'done' || status == 'notListening') {
-          if (mounted) setState(() => _escuchando = false);
-        }
-      },
-      onError: (error) {
-        if (mounted) {
-          setState(() => _escuchando = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error de voz: ${error.errorMsg}')),
-          );
-        }
-      },
-    );
+    // Solo verificar si el permiso ya fue concedido previamente
+    // Si no, se pedirá cuando el usuario toque el botón de voz
+    final status = await Permission.microphone.status;
+    if (status.isGranted) {
+      _vozDisponible = await _speech.initialize(
+        onStatus: (status) {
+          if (status == 'done' || status == 'notListening') {
+            if (mounted) setState(() => _escuchando = false);
+          }
+        },
+        onError: (error) {
+          if (mounted) {
+            setState(() => _escuchando = false);
+          }
+        },
+      );
+    }
   }
 
   Future<void> _verificarActualizacion() async {

@@ -7,21 +7,42 @@ class SupabaseService {
   // === CONTACTOS PÚBLICOS ===
 
   Future<List<Contacto>> getContactosAprobadosDesde(DateTime? fecha) async {
-    var query = _client
-        .from('contactos')
-        .select('*, categorias(nombre, icono)')
-        .eq('estado', 'aprobado')
-        .isFilter('deleted_at', null);
+    // Supabase tiene límite por request (1000 por defecto)
+    // Paginamos para traer todos los contactos
+    const pageSize = 1000;
+    final allContactos = <Contacto>[];
+    int offset = 0;
+    bool hayMas = true;
 
-    if (fecha != null) {
-      query = query.or(
-        'fecha_aprobacion.gt.${fecha.toIso8601String()},'
-        'ultima_modificacion.gt.${fecha.toIso8601String()}',
-      );
+    while (hayMas) {
+      var query = _client
+          .from('contactos')
+          .select('*, categorias(nombre, icono)')
+          .eq('estado', 'aprobado')
+          .isFilter('deleted_at', null);
+
+      if (fecha != null) {
+        query = query.or(
+          'fecha_aprobacion.gt.${fecha.toIso8601String()},'
+          'ultima_modificacion.gt.${fecha.toIso8601String()}',
+        );
+      }
+
+      final response = await query
+          .order('nombre')
+          .range(offset, offset + pageSize - 1);
+
+      final lista = (response as List);
+      allContactos.addAll(lista.map((json) => Contacto.fromJson(json)));
+
+      if (lista.length < pageSize) {
+        hayMas = false;
+      } else {
+        offset += pageSize;
+      }
     }
 
-    final response = await query.order('nombre');
-    return (response as List).map((json) => Contacto.fromJson(json)).toList();
+    return allContactos;
   }
 
   Future<List<String>> getContactosEliminadosDesde(DateTime fecha) async {
