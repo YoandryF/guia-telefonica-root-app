@@ -7,6 +7,7 @@ import '../models/contacto.dart';
 import '../services/local_database_service.dart';
 import '../services/supabase_service.dart';
 import '../services/update_service.dart';
+import '../services/ubicacion_service.dart';
 import 'agregar_contacto_screen.dart';
 import 'acerca_de_screen.dart';
 import 'caller_id_screen.dart';
@@ -32,11 +33,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   List<Contacto> _favoritos = [];
   List<Map<String, dynamic>> _categorias = [];
   String? _categoriaFiltro;
+  String? _provinciaFiltro;
+  String? _municipioFiltro;
   bool _cargando = true;
   bool _online = true;
   bool _escuchando = false;
+  bool _vozDisponible = false;
   final stt.SpeechToText _speech = stt.SpeechToText();
   DateTime? _ultimaSync;
+  int _filtrosActivos = 0;
 
   @override
   void initState() {
@@ -45,10 +50,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _cargarCategorias();
     _sincronizar();
     _verificarActualizacion();
+    _initVoz();
     Connectivity().onConnectivityChanged.listen((result) {
       setState(() => _online = result != ConnectivityResult.none);
       if (_online) _sincronizar();
     });
+  }
+
+  Future<void> _initVoz() async {
+    _vozDisponible = await _speech.initialize(
+      onStatus: (status) {
+        if (status == 'done' || status == 'notListening') {
+          if (mounted) setState(() => _escuchando = false);
+        }
+      },
+      onError: (error) {
+        if (mounted) {
+          setState(() => _escuchando = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error de voz: ${error.errorMsg}')),
+          );
+        }
+      },
+    );
   }
 
   Future<void> _verificarActualizacion() async {
@@ -81,6 +105,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       _favoritos = favoritos;
       _cargando = false;
     });
+    _aplicarFiltros();
   }
 
   Future<void> _sincronizar() async {
@@ -92,7 +117,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         await _localDb.sincronizarBatch(nuevos);
       }
 
-      // Eliminar los que fueron borrados en la nube
       if (ultimaSync != null) {
         final eliminados = await _supabaseService.getContactosEliminadosDesde(ultimaSync);
         for (final id in eliminados) {
@@ -101,7 +125,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
 
       await _localDb.guardarUltimaSincronizacion(DateTime.now());
-      // Actualizar campo tiene_reportes
       try {
         final idsReportados = await _supabaseService.getContactosConReportes();
         final contactos = await _localDb.getAllContactos();
@@ -113,35 +136,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       } catch (_) {}
       await _cargarContactos();
     } catch (e) {
-      // Sin conexión — usar datos locales
       debugPrint('Sync error: $e');
     }
   }
 
   Future<void> _cargarCategorias() async {
     try {
-      // Intentar desde Supabase
       final cats = await _supabaseService.getCategorias();
       setState(() => _categorias = cats);
-      // Guardar en local para offline
       await _localDb.guardarCategorias(cats);
     } catch (_) {
-      // Sin conexión: cargar desde SQLite local
       final catsLocal = await _localDb.getCategoriasLocal();
       setState(() => _categorias = catsLocal);
     }
   }
 
-
-  void _filtrar(String query) {
+  void _aplicarFiltros() {
     setState(() {
       var resultado = _contactos.toList();
+      final query = _searchController.text;
 
-      // Filtro por categoría o reportados
+      // Filtro por categoría
       if (_categoriaFiltro == '_reportados') {
         resultado = resultado.where((c) => c.tieneReportes).toList();
       } else if (_categoriaFiltro != null) {
         resultado = resultado.where((c) => c.categoriaId == _categoriaFiltro).toList();
+      }
+
+      // Filtro por provincia
+      if (_provinciaFiltro != null) {
+        resultado = resultado.where((c) => c.provincia == _provinciaFiltro).toList();
+      }
+
+      // Filtro por municipio
+      if (_municipioFiltro != null) {
+        resultado = resultado.where((c) => c.municipio == _municipioFiltro).toList();
       }
 
       // Filtro por texto
@@ -151,32 +180,206 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             c.nombre.toLowerCase().contains(q) ||
             c.apellido.toLowerCase().contains(q) ||
             c.telefono.contains(q) ||
-            (c.ci?.contains(q) ?? false)).toList();
+            (c.ci?.contains(q) ?? false) ||
+            (c.provincia?.toLowerCase().contains(q) ?? false) ||
+            (c.municipio?.toLowerCase().contains(q) ?? false)).toList();
       }
 
       _filtrados = resultado;
+      _filtrosActivos = (_categoriaFiltro != null ? 1 : 0) +
+          (_provinciaFiltro != null ? 1 : 0) +
+          (_municipioFiltro != null ? 1 : 0);
     });
+  }
+
+  void _filtrar(String query) {
+    _aplicarFiltros();
   }
 
   Future<void> _toggleVoz() async {
     if (_escuchando) {
       await _speech.stop();
       setState(() => _escuchando = false);
-    } else {
-      final available = await _speech.initialize(onError: (_) => setState(() => _escuchando = false));
-      if (!available) return;
-      setState(() => _escuchando = true);
-      await _speech.listen(
-        localeId: 'es_ES',
-        onResult: (result) {
-          _searchController.text = result.recognizedWords;
-          _filtrar(result.recognizedWords);
-          if (result.finalResult) setState(() => _escuchando = false);
+      return;
+    }
+
+    if (!_vozDisponible) {
+      // Reintentar init
+      _vozDisponible = await _speech.initialize(
+        onStatus: (status) {
+          if (status == 'done' || status == 'notListening') {
+            if (mounted) setState(() => _escuchando = false);
+          }
+        },
+        onError: (error) {
+          if (mounted) {
+            setState(() => _escuchando = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error: ${error.errorMsg}')),
+            );
+          }
         },
       );
+      if (!_vozDisponible) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('⚠️ Reconocimiento de voz no disponible')),
+          );
+        }
+        return;
+      }
     }
+
+    setState(() => _escuchando = true);
+
+    await _speech.listen(
+      localeId: 'es_ES',
+      listenMode: stt.ListenMode.search,
+      cancelOnError: true,
+      listenFor: const Duration(seconds: 10),
+      onResult: (result) {
+        if (mounted) {
+          _searchController.text = result.recognizedWords;
+          _aplicarFiltros();
+          if (result.finalResult) {
+            setState(() => _escuchando = false);
+          }
+        }
+      },
+    );
   }
 
+  void _mostrarFiltros() {
+    final provincias = UbicacionService.getProvincias();
+    String? tempProvincia = _provinciaFiltro;
+    String? tempMunicipio = _municipioFiltro;
+    String? tempCategoria = _categoriaFiltro;
+    List<String> municipiosDisponibles = tempProvincia != null
+        ? UbicacionService.getMunicipios(tempProvincia)
+        : [];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.55,
+          minChildSize: 0.3,
+          maxChildSize: 0.8,
+          builder: (ctx, scrollController) => Padding(
+            padding: const EdgeInsets.all(16),
+            child: ListView(
+              controller: scrollController,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Filtros', style: Theme.of(context).textTheme.titleLarge),
+                    TextButton(
+                      onPressed: () {
+                        setSheetState(() {
+                          tempCategoria = null;
+                          tempProvincia = null;
+                          tempMunicipio = null;
+                          municipiosDisponibles = [];
+                        });
+                      },
+                      child: const Text('Limpiar todo'),
+                    ),
+                  ],
+                ),
+                const Divider(),
+
+                // Categoría
+                const SizedBox(height: 8),
+                Text('Categoría', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: tempCategoria,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    hintText: 'Todas las categorías',
+                  ),
+                  isExpanded: true,
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('Todas')),
+                    const DropdownMenuItem(value: '_reportados', child: Text('⚠️ Reportados')),
+                    ..._categorias.map((cat) => DropdownMenuItem(
+                      value: cat['id'] as String,
+                      child: Text('${cat['icono'] ?? "📋"} ${cat['nombre']}'),
+                    )),
+                  ],
+                  onChanged: (v) => setSheetState(() => tempCategoria = v),
+                ),
+
+                // Provincia
+                const SizedBox(height: 16),
+                Text('Provincia', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: tempProvincia,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    hintText: 'Todas las provincias',
+                  ),
+                  isExpanded: true,
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('Todas')),
+                    ...provincias.map((p) => DropdownMenuItem(value: p, child: Text(p))),
+                  ],
+                  onChanged: (v) {
+                    setSheetState(() {
+                      tempProvincia = v;
+                      tempMunicipio = null;
+                      municipiosDisponibles = v != null ? UbicacionService.getMunicipios(v) : [];
+                    });
+                  },
+                ),
+
+                // Municipio
+                const SizedBox(height: 16),
+                Text('Municipio', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: tempMunicipio,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    hintText: 'Todos los municipios',
+                  ),
+                  isExpanded: true,
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('Todos')),
+                    ...municipiosDisponibles.map((m) => DropdownMenuItem(value: m, child: Text(m))),
+                  ],
+                  onChanged: (v) => setSheetState(() => tempMunicipio = v),
+                ),
+
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _categoriaFiltro = tempCategoria;
+                      _provinciaFiltro = tempProvincia;
+                      _municipioFiltro = tempMunicipio;
+                    });
+                    _aplicarFiltros();
+                    Navigator.pop(ctx);
+                  },
+                  icon: const Icon(Icons.check),
+                  label: const Text('APLICAR FILTROS'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Future<void> _llamar(String telefono) async {
     final uri = Uri.parse('tel:$telefono');
@@ -192,8 +395,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         title: const Text('📋 Guía Telefónica'),
         actions: [
           IconButton(
+            icon: Badge(
+              isLabelVisible: _filtrosActivos > 0,
+              label: Text('$_filtrosActivos'),
+              child: const Icon(Icons.filter_list),
+            ),
+            tooltip: 'Filtros',
+            onPressed: _mostrarFiltros,
+          ),
+          IconButton(
             icon: const Icon(Icons.sync),
-            tooltip: 'Sincronizar contactos',
+            tooltip: 'Sincronizar',
             onPressed: _sincronizar,
           ),
           PopupMenuButton<String>(
@@ -247,7 +459,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
 
-
           // Barra de búsqueda
           Padding(
             padding: const EdgeInsets.all(12),
@@ -256,133 +467,108 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               decoration: InputDecoration(
                 hintText: 'Buscar contacto...',
                 prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_searchController.text.isNotEmpty)
+                      IconButton(
                         icon: const Icon(Icons.clear),
                         onPressed: () {
                           _searchController.clear();
-                          _filtrar('');
+                          _aplicarFiltros();
                         },
-                      )
-                    : IconButton(
-                        icon: Icon(_escuchando ? Icons.mic : Icons.mic_none, color: _escuchando ? Colors.red : null),
-                        onPressed: _toggleVoz,
                       ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                    IconButton(
+                      icon: Icon(
+                        _escuchando ? Icons.mic : Icons.mic_none,
+                        color: _escuchando ? Colors.red : null,
+                      ),
+                      onPressed: _toggleVoz,
+                    ),
+                  ],
                 ),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 filled: true,
               ),
               onChanged: _filtrar,
             ),
           ),
 
-
-          // Filtro por categoría
-          if (_categorias.isNotEmpty)
-            SizedBox(
-              height: 40,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
+          // Indicador de escucha
+          if (_escuchando)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: FilterChip(
-                      label: const Text('Todos'),
-                      selected: _categoriaFiltro == null,
-                      onSelected: (_) {
-                        setState(() => _categoriaFiltro = null);
-                        _filtrar(_searchController.text);
-                      },
-                    ),
+                  const SizedBox(
+                    width: 16, height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.red),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: FilterChip(
-                      avatar: const Text('⚠️', style: TextStyle(fontSize: 12)),
-                      label: const Text('Reportados', style: TextStyle(fontSize: 11)),
-                      selected: _categoriaFiltro == '_reportados',
-                      selectedColor: Colors.red.withOpacity(0.2),
-                      onSelected: (_) {
-                        setState(() => _categoriaFiltro = _categoriaFiltro == '_reportados' ? null : '_reportados');
-                        _filtrar(_searchController.text);
-                      },
-                    ),
+                  const SizedBox(width: 8),
+                  const Text('Escuchando...', style: TextStyle(color: Colors.red, fontSize: 12)),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: _toggleVoz,
+                    child: const Text('Detener', style: TextStyle(fontSize: 12)),
                   ),
-                  ..._categorias.map((cat) => Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: FilterChip(
-                      avatar: Text(cat['icono'] ?? '📋', style: const TextStyle(fontSize: 12)),
-                      label: Text(cat['nombre'] ?? '', style: const TextStyle(fontSize: 11)),
-                      selected: _categoriaFiltro == cat['id'],
-                      onSelected: (_) {
-                        setState(() => _categoriaFiltro = _categoriaFiltro == cat['id'] ? null : cat['id']);
-                        _filtrar(_searchController.text);
-                      },
-                    ),
-                  )),
                 ],
               ),
             ),
 
-
-          // Info de sincronización
-          if (_ultimaSync != null)
+          // Chips de filtros activos
+          if (_filtrosActivos > 0)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                'Última sync: ${_formatearFecha(_ultimaSync!)}',
-                style: Theme.of(context).textTheme.bodySmall,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Wrap(
+                spacing: 6,
+                children: [
+                  if (_categoriaFiltro == '_reportados')
+                    Chip(
+                      label: const Text('⚠️ Reportados', style: TextStyle(fontSize: 11)),
+                      deleteIcon: const Icon(Icons.close, size: 14),
+                      onDeleted: () { setState(() => _categoriaFiltro = null); _aplicarFiltros(); },
+                      visualDensity: VisualDensity.compact,
+                    )
+                  else if (_categoriaFiltro != null)
+                    Chip(
+                      label: Text(_categorias.firstWhere((c) => c['id'] == _categoriaFiltro, orElse: () => {'nombre': '?'})['nombre'] ?? '?', style: const TextStyle(fontSize: 11)),
+                      deleteIcon: const Icon(Icons.close, size: 14),
+                      onDeleted: () { setState(() => _categoriaFiltro = null); _aplicarFiltros(); },
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  if (_provinciaFiltro != null)
+                    Chip(
+                      label: Text('🗺 $_provinciaFiltro', style: const TextStyle(fontSize: 11)),
+                      deleteIcon: const Icon(Icons.close, size: 14),
+                      onDeleted: () { setState(() { _provinciaFiltro = null; _municipioFiltro = null; }); _aplicarFiltros(); },
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  if (_municipioFiltro != null)
+                    Chip(
+                      label: Text('🏘 $_municipioFiltro', style: const TextStyle(fontSize: 11)),
+                      deleteIcon: const Icon(Icons.close, size: 14),
+                      onDeleted: () { setState(() => _municipioFiltro = null); _aplicarFiltros(); },
+                      visualDensity: VisualDensity.compact,
+                    ),
+                ],
               ),
             ),
 
-          // Favoritos
-          if (_favoritos.isNotEmpty && _searchController.text.isEmpty && _categoriaFiltro == null)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          // Info
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+            child: Row(
               children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: Text('⭐ Favoritos', style: Theme.of(context).textTheme.titleSmall),
-                ),
-                SizedBox(
-                  height: 80,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: _favoritos.length,
-                    itemBuilder: (ctx, i) {
-                      final c = _favoritos[i];
-                      return GestureDetector(
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ContactoDetalleScreen(contacto: c))),
-                        child: Container(
-                          width: 140,
-                          margin: const EdgeInsets.only(right: 8),
-                          child: Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(8),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(c.nombreCompleto, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                  const SizedBox(height: 4),
-                                  Text('📱 ${c.telefono}', style: const TextStyle(fontSize: 11)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const Divider(),
+                Text('${_filtrados.length} contactos', style: Theme.of(context).textTheme.bodySmall),
+                const Spacer(),
+                if (_ultimaSync != null)
+                  Text('Sync: ${_formatearFecha(_ultimaSync!)}', style: Theme.of(context).textTheme.bodySmall),
               ],
             ),
+          ),
 
           // Favoritos
-          if (_favoritos.isNotEmpty && _searchController.text.isEmpty && _categoriaFiltro == null)
+          if (_favoritos.isNotEmpty && _searchController.text.isEmpty && _filtrosActivos == 0)
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -430,9 +616,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             child: _cargando
                 ? const Center(child: CircularProgressIndicator())
                 : _filtrados.isEmpty
-                    ? const Center(
-                        child: Text('No se encontraron contactos'),
-                      )
+                    ? const Center(child: Text('No se encontraron contactos'))
                     : RefreshIndicator(
                         onRefresh: _sincronizar,
                         child: ListView.builder(
@@ -509,8 +693,8 @@ class _ContactoCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('📱 ${contacto.telefono}'),
-            if (contacto.direccion != null)
-              Text('📍 ${contacto.direccion}', style: Theme.of(context).textTheme.bodySmall),
+            if (contacto.ubicacionCompleta != null)
+              Text('📍 ${contacto.ubicacionCompleta}', style: Theme.of(context).textTheme.bodySmall),
             if (contacto.categoriaNombre != null)
               Text('${contacto.categoriaIcono ?? "📂"} ${contacto.categoriaNombre}',
                   style: Theme.of(context).textTheme.bodySmall),
