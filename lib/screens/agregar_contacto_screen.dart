@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/supabase_service.dart';
+import '../services/ubicacion_service.dart';
 
 class AgregarContactoScreen extends StatefulWidget {
   const AgregarContactoScreen({super.key});
@@ -20,11 +21,15 @@ class _AgregarContactoScreenState extends State<AgregarContactoScreen> {
   bool _enviando = false;
   List<Map<String, dynamic>> _categorias = [];
   String? _categoriaSeleccionada;
+  String? _provinciaSeleccionada;
+  String? _municipioSeleccionado;
+  List<String> _municipiosDisponibles = [];
 
   @override
   void initState() {
     super.initState();
     _cargarCategorias();
+    UbicacionService.init();
   }
 
   Future<void> _cargarCategorias() async {
@@ -32,6 +37,16 @@ class _AgregarContactoScreenState extends State<AgregarContactoScreen> {
       final cats = await _supabase.getCategorias();
       setState(() => _categorias = cats);
     } catch (_) {}
+  }
+
+  void _onProvinciaChanged(String? provincia) {
+    setState(() {
+      _provinciaSeleccionada = provincia;
+      _municipioSeleccionado = null;
+      _municipiosDisponibles = provincia != null
+          ? UbicacionService.getMunicipios(provincia)
+          : [];
+    });
   }
 
   Future<void> _guardar() async {
@@ -46,6 +61,8 @@ class _AgregarContactoScreenState extends State<AgregarContactoScreen> {
       direccion: _direccionCtrl.text.trim().isNotEmpty ? _direccionCtrl.text.trim() : null,
       ci: _ciCtrl.text.trim().isNotEmpty ? _ciCtrl.text.trim() : null,
       categoriaId: _categoriaSeleccionada,
+      provincia: _provinciaSeleccionada,
+      municipio: _municipioSeleccionado,
     );
 
     setState(() => _enviando = false);
@@ -68,6 +85,8 @@ class _AgregarContactoScreenState extends State<AgregarContactoScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final provincias = UbicacionService.getProvincias();
+
     return Scaffold(
       appBar: AppBar(title: const Text('✏️ Nuevo Contacto')),
       body: SingleChildScrollView(
@@ -116,6 +135,37 @@ class _AgregarContactoScreenState extends State<AgregarContactoScreen> {
                 validator: (v) => v == null || v.trim().length < 5
                     ? 'Mínimo 5 dígitos'
                     : null,
+              ),
+              const SizedBox(height: 12),
+
+              // === UBICACIÓN ===
+              DropdownButtonFormField<String>(
+                value: _provinciaSeleccionada,
+                decoration: const InputDecoration(
+                  labelText: 'Provincia',
+                  prefixIcon: Icon(Icons.map),
+                  border: OutlineInputBorder(),
+                ),
+                items: provincias.map((p) {
+                  return DropdownMenuItem(value: p, child: Text(p));
+                }).toList(),
+                onChanged: _onProvinciaChanged,
+                isExpanded: true,
+              ),
+              const SizedBox(height: 12),
+
+              DropdownButtonFormField<String>(
+                value: _municipioSeleccionado,
+                decoration: const InputDecoration(
+                  labelText: 'Municipio',
+                  prefixIcon: Icon(Icons.location_city),
+                  border: OutlineInputBorder(),
+                ),
+                items: _municipiosDisponibles.map((m) {
+                  return DropdownMenuItem(value: m, child: Text(m));
+                }).toList(),
+                onChanged: (v) => setState(() => _municipioSeleccionado = v),
+                isExpanded: true,
               ),
               const SizedBox(height: 12),
 
