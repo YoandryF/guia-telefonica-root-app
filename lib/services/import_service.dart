@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
-import '../services/supabase_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ImportResult {
   final int procesados;
@@ -10,36 +11,38 @@ class ImportResult {
   final int duplicados;
   final int errores;
   final String? errorDetalle;
+  final bool completado;
+  final int chunkActual;
+  final int totalChunks;
 
-  ImportResult({this.procesados = 0, this.nuevos = 0, this.duplicados = 0, this.errores = 0, this.errorDetalle});
+  ImportResult({this.procesados = 0, this.nuevos = 0, this.duplicados = 0, this.errores = 0, this.errorDetalle, this.completado = true, this.chunkActual = 0, this.totalChunks = 0});
 }
 
 class ImportService {
-  final _supabase = SupabaseService();
+  static const _chunkSize = 100;
+  static const _prefKey = 'import_progress';
 
-  /// Seleccionar archivo CSV o JSON
   Future<PlatformFile?> seleccionarArchivo() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['csv', 'json'],
-    );
+    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['csv', 'json']);
     return result?.files.first;
   }
 
-  /// Leer preview de un archivo (primeros 5 registros)
   Future<List<Map<String, String>>> preview(PlatformFile file) async {
     final contenido = await File(file.path!).readAsString();
-
-    if (file.extension == 'csv') {
-      return _parsearCSV(contenido).take(5).toList();
-    } else if (file.extension == 'json') {
-      return _parsearJSON(contenido).take(5).toList();
-    }
+    if (file.extension == 'csv') return _parsearCSV(contenido).take(5).toList();
+    if (file.extension == 'json') return _parsearJSON(contenido).take(5).toList();
     return [];
   }
 
-  /// Importar archivo completo (los contactos quedan como pendientes)
-  Future<ImportResult> importar(PlatformFile file) async {
+  Future<int> contarRegistros(PlatformFile file) async {
+    final contenido = await File(file.path!).readAsString();
+    if (file.extension == 'csv') return _parsearCSV(contenido).length;
+    if (file.extension == 'json') return _parsearJSON(contenido).length;
+    return 0;
+  }
+
+  /// Importar con batch, progreso y capacidad de reintentar
+  Stream<ImportResult> importarStream(PlatformFile file, {int desdeChunk = 0}) async* {
     final contenido = await File(file.path!).readAsString();
     List<Map<String, String>> contactos;
 
@@ -48,65 +51,133 @@ class ImportService {
     } else if (file.extension == 'json') {
       contactos = _parsearJSON(contenido);
     } else {
-      return ImportResult(errorDetalle: 'Formato no soportado');
+      yield ImportResult(errorDetalle: 'Formato no soportado', completado: false);
+      return;
+    }
+
+    final chunks = <List<Map<String, String>>>[];
+    for (var i = 0; i < contactos.length; i += _chunkSize) {
+      chunks.add(contactos.sublist(i, i + _chunkSize > contactos.length ? contactos.length : i + _chunkSize));
     }
 
     int nuevos = 0, duplicados = 0, errores = 0;
+    final client = Supabase.instance.client;
 
-    for (final c in contactos) {
-      final nombre = c['nombre'] ?? '';
-      final apellido = c['apellido'] ?? '';
-      final telefono = c['telefono'] ?? '';
-
-      if (nombre.length < 2 || apellido.length < 2 || telefono.length < 5) {
-        errores++;
-        continue;
-      }
-
-      final resultado = await _supabase.registrarContacto(
-        nombre: nombre,
-        apellido: apellido,
-        telefono: telefono,
-        direccion: c['direccion'],
-        ci: c['ci'],
-      );
-
-      if (resultado['error'] != null) {
-        final error = resultado['error'].toString();
-        if (error.contains('duplicate') || error.contains('unique')) {
-          duplicados++;
-        } else {
-          errores++;
-        }
-      } else {
-        nuevos++;
-      }
+    // Si reiniciamos, sumar lo anterior
+    if (desdeChunk > 0) {
+      final prefs = await SharedPreferences.getInstance();
+      nuevos = prefs.getInt('import_nuevos') ?? 0;
+      duplicados = prefs.getInt('import_duplicados') ?? 0;
+      errores = prefs.getInt('import_errores') ?? 0;
     }
 
-    return ImportResult(
-      procesados: contactos.length,
-      nuevos: nuevos,
-      duplicados: duplicados,
-      errores: errores,
-    );
+    for (var i = desdeChunk; i < chunks.length; i++) {
+      final chunk = chunks[i];
+
+      // Preparar batch
+      final batch = chunk.where((c) =>
+        (c['nombre'] ?? '').length >= 2 &&
+        (c['apellido'] ?? '').length >= 2 &&
+        (c['telefono'] ?? '').length >= 5
+      ).map((c) => {
+        'nombre': c['nombre']!,
+        'apellido': c['apellido']!,
+        'telefono': c['telefono']!,
+        'direccion': c['direccion']?.isNotEmpty == true ? c['direccion'] : null,
+        'ci': c['ci']?.isNotEmpty == true ? c['ci'] : null,
+        'estado': 'pendiente',
+        'creado_desde': 'app',
+      }).toList();
+
+      errores += chunk.length - batch.length;
+
+      try {
+        final response = await client.from('contactos').upsert(
+          batch,
+          onConflict: 'telefono',
+          ignoreDuplicates: true,
+        ).select();
+
+        nuevos += response.length;
+        duplicados += batch.length - response.length;
+      } catch (e) {
+        // Error de conexión — guardar progreso y parar
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt('import_chunk', i);
+        await prefs.setInt('import_nuevos', nuevos);
+        await prefs.setInt('import_duplicados', duplicados);
+        await prefs.setInt('import_errores', errores);
+        await prefs.setString('import_file', file.path!);
+
+        yield ImportResult(
+          procesados: i * _chunkSize,
+          nuevos: nuevos,
+          duplicados: duplicados,
+          errores: errores,
+          errorDetalle: 'Error en chunk ${i + 1}/${chunks.length}: $e',
+          completado: false,
+          chunkActual: i,
+          totalChunks: chunks.length,
+        );
+        return;
+      }
+
+      // Emitir progreso
+      yield ImportResult(
+        procesados: (i + 1) * _chunkSize > contactos.length ? contactos.length : (i + 1) * _chunkSize,
+        nuevos: nuevos,
+        duplicados: duplicados,
+        errores: errores,
+        completado: i == chunks.length - 1,
+        chunkActual: i + 1,
+        totalChunks: chunks.length,
+      );
+    }
+
+    // Limpiar progreso guardado
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('import_chunk');
+    await prefs.remove('import_nuevos');
+    await prefs.remove('import_duplicados');
+    await prefs.remove('import_errores');
+    await prefs.remove('import_file');
+  }
+
+  /// Verificar si hay importación pendiente de reintentar
+  Future<Map<String, dynamic>?> getImportPendiente() async {
+    final prefs = await SharedPreferences.getInstance();
+    final chunk = prefs.getInt('import_chunk');
+    if (chunk == null) return null;
+    return {
+      'chunk': chunk,
+      'file': prefs.getString('import_file'),
+      'nuevos': prefs.getInt('import_nuevos') ?? 0,
+      'duplicados': prefs.getInt('import_duplicados') ?? 0,
+      'errores': prefs.getInt('import_errores') ?? 0,
+    };
+  }
+
+  Future<void> cancelarImportPendiente() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('import_chunk');
+    await prefs.remove('import_nuevos');
+    await prefs.remove('import_duplicados');
+    await prefs.remove('import_errores');
+    await prefs.remove('import_file');
   }
 
   List<Map<String, String>> _parsearCSV(String contenido) {
     final rows = const CsvToListConverter().convert(contenido);
     if (rows.length < 2) return [];
-
     final headers = rows.first.map((h) => h.toString().trim().toLowerCase()).toList();
     final contactos = <Map<String, String>>[];
-
     for (var i = 1; i < rows.length; i++) {
       final row = rows[i];
       final map = <String, String>{};
       for (var j = 0; j < headers.length && j < row.length; j++) {
         map[headers[j]] = row[j].toString().trim();
       }
-      if (map['nombre'] != null && map['telefono'] != null) {
-        contactos.add(map);
-      }
+      if (map['nombre'] != null && map['telefono'] != null) contactos.add(map);
     }
     return contactos;
   }
@@ -114,7 +185,6 @@ class ImportService {
   List<Map<String, String>> _parsearJSON(String contenido) {
     final data = json.decode(contenido);
     List items;
-
     if (data is Map && data.containsKey('contactos')) {
       items = data['contactos'] as List;
     } else if (data is List) {
@@ -122,7 +192,6 @@ class ImportService {
     } else {
       return [];
     }
-
     return items.map((item) {
       final map = <String, String>{};
       (item as Map).forEach((key, value) {
