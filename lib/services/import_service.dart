@@ -74,12 +74,15 @@ class ImportService {
         (c['nombre'] ?? '').length >= 2 &&
         (c['apellido'] ?? '').length >= 2 &&
         (c['telefono'] ?? '').length >= 5
-      ).map((c) => {
+      ).map((c) => <String, dynamic>{
         'nombre': c['nombre']!,
         'apellido': c['apellido']!,
         'telefono': c['telefono']!,
         'direccion': c['direccion']?.isNotEmpty == true ? c['direccion'] : null,
         'ci': c['ci']?.isNotEmpty == true ? c['ci'] : null,
+        'provincia': c['provincia']?.isNotEmpty == true ? c['provincia'] : null,
+        'municipio': c['municipio']?.isNotEmpty == true ? c['municipio'] : null,
+        'pais': c['pais']?.isNotEmpty == true ? c['pais'] : null,
         'estado': 'pendiente',
         'creado_desde': 'app',
       }).toList();
@@ -92,7 +95,6 @@ class ImportService {
       } catch (e) {
         final errStr = e.toString();
         if (errStr.contains('duplicate') || errStr.contains('unique') || errStr.contains('23505')) {
-          // Chunk tiene duplicados de CI - insertar uno por uno
           for (final item in batch) {
             try {
               await client.from('contactos').insert(item);
@@ -102,7 +104,6 @@ class ImportService {
             }
           }
         } else {
-          // Error de conexión - guardar progreso
           final prefs = await SharedPreferences.getInstance();
           await prefs.setInt('import_chunk', i);
           await prefs.setInt('import_nuevos', nuevos);

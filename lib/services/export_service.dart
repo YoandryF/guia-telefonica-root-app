@@ -9,9 +9,10 @@ import '../models/contacto.dart';
 
 class ExportService {
   Future<void> exportarCSV(List<Contacto> contactos) async {
-    final header = ['nombre', 'apellido', 'telefono', 'direccion', 'ci', 'categoria'];
+    final header = ['nombre', 'apellido', 'telefono', 'direccion', 'ci', 'categoria', 'provincia', 'municipio', 'pais'];
     final rows = contactos.map((c) => [
-      c.nombre, c.apellido, c.telefono, c.direccion ?? '', c.ci ?? '', c.categoriaNombre ?? '',
+      c.nombre, c.apellido, c.telefono, c.direccion ?? '', c.ci ?? '',
+      c.categoriaNombre ?? '', c.provincia ?? '', c.municipio ?? '', c.pais ?? 'Cuba',
     ]).toList();
 
     final csv = const ListToCsvConverter().convert([header, ...rows]);
@@ -24,10 +25,11 @@ class ExportService {
 
   Future<void> exportarJSON(List<Contacto> contactos) async {
     final data = {
-      'metadatos': {'version': '1.0', 'fecha': DateTime.now().toIso8601String(), 'total': contactos.length},
+      'metadatos': {'version': '1.1', 'fecha': DateTime.now().toIso8601String(), 'total': contactos.length},
       'contactos': contactos.map((c) => {
         'nombre': c.nombre, 'apellido': c.apellido, 'telefono': c.telefono,
         'direccion': c.direccion, 'ci': c.ci, 'categoria': c.categoriaNombre,
+        'provincia': c.provincia, 'municipio': c.municipio, 'pais': c.pais,
       }).toList(),
     };
 
@@ -42,8 +44,8 @@ class ExportService {
   Future<void> exportarPDF(List<Contacto> contactos) async {
     final pdf = pw.Document();
     final chunks = <List<Contacto>>[];
-    for (var i = 0; i < contactos.length; i += 30) {
-      chunks.add(contactos.sublist(i, i + 30 > contactos.length ? contactos.length : i + 30));
+    for (var i = 0; i < contactos.length; i += 25) {
+      chunks.add(contactos.sublist(i, i + 25 > contactos.length ? contactos.length : i + 25));
     }
 
     for (final chunk in chunks) {
@@ -55,10 +57,13 @@ class ExportService {
             pw.Text('Guía Telefónica', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
             pw.SizedBox(height: 8),
             pw.Table.fromTextArray(
-              headers: ['Nombre', 'Teléfono', 'Dirección', 'CI'],
-              data: chunk.map((c) => [c.nombreCompleto, c.telefono, c.direccion ?? '', c.ci ?? '']).toList(),
-              cellStyle: const pw.TextStyle(fontSize: 9),
-              headerStyle: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
+              headers: ['Nombre', 'Teléfono', 'Provincia', 'Municipio', 'Dirección'],
+              data: chunk.map((c) => [
+                c.nombreCompleto, c.telefono,
+                c.provincia ?? '', c.municipio ?? '', c.direccion ?? '',
+              ]).toList(),
+              cellStyle: const pw.TextStyle(fontSize: 8),
+              headerStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
             ),
           ],
         ),
