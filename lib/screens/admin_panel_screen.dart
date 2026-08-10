@@ -58,7 +58,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         SnackBar(content: Text('✅ ${contacto.nombreCompleto} aprobado')),
       );
     }
-    _cargarDatos();
+    setState(() => _pendientes.removeWhere((c) => c.id == contacto.id));
+    if (_pendientes.isEmpty) _cargarDatos();
   }
 
   Future<void> _rechazar(Contacto contacto) async {
@@ -87,7 +88,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         SnackBar(content: Text('❌ ${contacto.nombreCompleto} rechazado')),
       );
     }
-    _cargarDatos();
+    setState(() => _pendientes.removeWhere((c) => c.id == contacto.id));
+    if (_pendientes.isEmpty) _cargarDatos();
   }
 
   void _irALista(String estado, String titulo) {
