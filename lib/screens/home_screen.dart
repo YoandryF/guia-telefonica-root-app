@@ -31,6 +31,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   List<Contacto> _contactos = [];
   List<Contacto> _filtrados = [];
+  List<Contacto> _visibles = [];
   List<Contacto> _favoritos = [];
   List<Map<String, dynamic>> _categorias = [];
   String? _categoriaFiltro;
@@ -43,6 +44,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final stt.SpeechToText _speech = stt.SpeechToText();
   DateTime? _ultimaSync;
   int _filtrosActivos = 0;
+  static const _pageSize = 50;
+  int _paginaActual = 1;
 
   @override
   void initState() {
@@ -189,11 +192,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
 
       _filtrados = resultado;
+      _paginaActual = 1;
+      _visibles = resultado.take(_pageSize).toList();
       _filtrosActivos = (_categoriaFiltro != null ? 1 : 0) +
           (_provinciaFiltro != null ? 1 : 0) +
           (_municipioFiltro != null ? 1 : 0);
     });
   }
+
+  void _cargarMas() {
+    setState(() {
+      _paginaActual++;
+      _visibles = _filtrados.take(_paginaActual * _pageSize).toList();
+    });
+  }
+
+  bool get _hayMas => _visibles.length < _filtrados.length;
 
   void _filtrar(String query) {
     _aplicarFiltros();
@@ -572,7 +586,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
             child: Row(
               children: [
-                Text('${_filtrados.length} contactos', style: Theme.of(context).textTheme.bodySmall),
+                Text('${_visibles.length} de ${_filtrados.length} contactos', style: Theme.of(context).textTheme.bodySmall),
                 const Spacer(),
                 if (_ultimaSync != null)
                   Text('Sync: ${_formatearFecha(_ultimaSync!)}', style: Theme.of(context).textTheme.bodySmall),
@@ -633,10 +647,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     : RefreshIndicator(
                         onRefresh: _sincronizar,
                         child: ListView.builder(
-                          itemCount: _filtrados.length,
+                          itemCount: _visibles.length + (_hayMas ? 1 : 0),
                           itemBuilder: (context, index) {
+                            if (index == _visibles.length) {
+                              // Botón "Cargar más"
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                                child: OutlinedButton.icon(
+                                  onPressed: _cargarMas,
+                                  icon: const Icon(Icons.expand_more),
+                                  label: Text('Cargar más (${_filtrados.length - _visibles.length} restantes)'),
+                                ),
+                              );
+                            }
                             return _ContactoCard(
-                              contacto: _filtrados[index],
+                              contacto: _visibles[index],
                               onLlamar: _llamar,
                             );
                           },
