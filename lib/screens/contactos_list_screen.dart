@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/contacto.dart';
 import '../services/supabase_service.dart';
+import '../services/ubicacion_service.dart';
 
 class ContactosListScreen extends StatefulWidget {
   final String estado;
@@ -30,6 +31,10 @@ class _ContactosListScreenState extends State<ContactosListScreen> {
   String? _query;
   Timer? _debounce;
 
+  // Selección en lote
+  final Set<String> _seleccionados = {};
+  bool _modoSeleccion = false;
+
   static const int _limit = 20;
 
   @override
@@ -45,6 +50,8 @@ class _ContactosListScreenState extends State<ContactosListScreen> {
         _contactos = [];
         _cargando = true;
         _hayMas = true;
+        _seleccionados.clear();
+        _modoSeleccion = false;
       });
     }
 
@@ -93,6 +100,8 @@ class _ContactosListScreenState extends State<ContactosListScreen> {
       }
     });
   }
+
+  // === ACCIONES INDIVIDUALES ===
 
   Future<void> _aprobar(Contacto contacto) async {
     await _supabase.aprobarContacto(contacto.id);
@@ -145,49 +154,171 @@ class _ContactosListScreenState extends State<ContactosListScreen> {
     _cargar();
   }
 
-  Future<void> _editar(Contacto contacto) async {
+  Future<void> _editar(Contacto contacto, {bool aprobarAlGuardar = false}) async {
     final nombreCtrl = TextEditingController(text: contacto.nombre);
     final apellidoCtrl = TextEditingController(text: contacto.apellido);
     final telefonoCtrl = TextEditingController(text: contacto.telefono);
     final direccionCtrl = TextEditingController(text: contacto.direccion ?? '');
     final ciCtrl = TextEditingController(text: contacto.ci ?? '');
+    String? provinciaSeleccionada = contacto.provincia;
+    String? municipioSeleccionado = contacto.municipio;
+    List<String> municipiosDisponibles = provinciaSeleccionada != null
+        ? UbicacionService.getMunicipios(provinciaSeleccionada)
+        : [];
 
     final result = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Editar contacto'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(controller: nombreCtrl, decoration: const InputDecoration(labelText: 'Nombre')),
-              TextField(controller: apellidoCtrl, decoration: const InputDecoration(labelText: 'Apellido')),
-              TextField(controller: telefonoCtrl, decoration: const InputDecoration(labelText: 'Teléfono')),
-              TextField(controller: direccionCtrl, decoration: const InputDecoration(labelText: 'Dirección')),
-              TextField(controller: ciCtrl, decoration: const InputDecoration(labelText: 'CI')),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final provincias = UbicacionService.getProvincias();
+          return AlertDialog(
+            title: Text(aprobarAlGuardar ? 'Editar y Aprobar' : 'Editar contacto'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(controller: nombreCtrl, decoration: const InputDecoration(labelText: 'Nombre')),
+                  TextField(controller: apellidoCtrl, decoration: const InputDecoration(labelText: 'Apellido')),
+                  TextField(controller: telefonoCtrl, decoration: const InputDecoration(labelText: 'Teléfono'), keyboardType: TextInputType.phone),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: provinciaSeleccionada,
+                    decoration: const InputDecoration(labelText: 'Provincia'),
+                    isExpanded: true,
+                    items: provincias.map((p) => DropdownMenuItem(value: p, child: Text(p, style: const TextStyle(fontSize: 13)))).toList(),
+                    onChanged: (v) {
+                      setDialogState(() {
+                        provinciaSeleccionada = v;
+                        municipioSeleccionado = null;
+                        municipiosDisponibles = v != null ? UbicacionService.getMunicipios(v) : [];
+                      });
+                    },
+                  ),
+                  DropdownButtonFormField<String>(
+                    value: municipioSeleccionado,
+                    decoration: const InputDecoration(labelText: 'Municipio'),
+                    isExpanded: true,
+                    items: municipiosDisponibles.map((m) => DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(fontSize: 13)))).toList(),
+                    onChanged: (v) => setDialogState(() => municipioSeleccionado = v),
+                  ),
+                  TextField(controller: direccionCtrl, decoration: const InputDecoration(labelText: 'Dirección')),
+                  TextField(controller: ciCtrl, decoration: const InputDecoration(labelText: 'CI')),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: aprobarAlGuardar ? FilledButton.styleFrom(backgroundColor: Colors.green) : null,
+                child: Text(aprobarAlGuardar ? 'Guardar y Aprobar' : 'Guardar'),
+              ),
             ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Guardar')),
-        ],
+          );
+        },
       ),
     );
 
     if (result != true) return;
 
-    await _supabase.editarContacto(contacto.id, {
+    final datos = <String, dynamic>{
       'nombre': nombreCtrl.text.trim(),
       'apellido': apellidoCtrl.text.trim(),
       'telefono': telefonoCtrl.text.trim(),
       'direccion': direccionCtrl.text.trim().isNotEmpty ? direccionCtrl.text.trim() : null,
       'ci': ciCtrl.text.trim().isNotEmpty ? ciCtrl.text.trim() : null,
-    });
+      'provincia': provinciaSeleccionada,
+      'municipio': municipioSeleccionado,
+    };
+
+    if (aprobarAlGuardar) {
+      datos['estado'] = 'aprobado';
+      datos['fecha_aprobacion'] = DateTime.now().toIso8601String();
+    }
+
+    await _supabase.editarContacto(contacto.id, datos);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✏️ Contacto actualizado')),
+        SnackBar(content: Text(aprobarAlGuardar
+            ? '✅ ${nombreCtrl.text} editado y aprobado'
+            : '✏️ Contacto actualizado')),
+      );
+    }
+    _cargar();
+  }
+
+  // === ACCIONES EN LOTE ===
+
+  void _toggleSeleccion(String id) {
+    setState(() {
+      if (_seleccionados.contains(id)) {
+        _seleccionados.remove(id);
+        if (_seleccionados.isEmpty) _modoSeleccion = false;
+      } else {
+        _seleccionados.add(id);
+        _modoSeleccion = true;
+      }
+    });
+  }
+
+  void _seleccionarTodos() {
+    setState(() {
+      if (_seleccionados.length == _contactos.length) {
+        _seleccionados.clear();
+        _modoSeleccion = false;
+      } else {
+        _seleccionados.addAll(_contactos.map((c) => c.id));
+        _modoSeleccion = true;
+      }
+    });
+  }
+
+  Future<void> _aprobarLote() async {
+    if (_seleccionados.isEmpty) return;
+    final count = _seleccionados.length;
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Aprobar en lote'),
+        content: Text('¿Aprobar $count contactos seleccionados?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Aprobar todos'),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true) return;
+
+    for (final id in _seleccionados) {
+      await _supabase.aprobarContacto(id);
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('✅ $count contactos aprobados')),
+      );
+    }
+    _cargar();
+  }
+
+  Future<void> _rechazarLote() async {
+    if (_seleccionados.isEmpty) return;
+    final count = _seleccionados.length;
+    final motivo = await _mostrarDialogo('Motivo de rechazo (lote)', 'Se aplicará a los $count seleccionados');
+    if (motivo == null || motivo.isEmpty) return;
+
+    for (final id in _seleccionados) {
+      await _supabase.rechazarContacto(id, motivo);
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ $count contactos rechazados')),
       );
     }
     _cargar();
@@ -215,7 +346,50 @@ class _ContactosListScreenState extends State<ContactosListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.titulo)),
+      appBar: AppBar(
+        title: Text(widget.titulo),
+        actions: [
+          if (_contactos.isNotEmpty && widget.estado == 'pendiente')
+            IconButton(
+              icon: Icon(_seleccionados.length == _contactos.length ? Icons.deselect : Icons.select_all),
+              onPressed: _seleccionarTodos,
+              tooltip: 'Seleccionar todos',
+            ),
+        ],
+      ),
+      // Barra de acciones en lote
+      bottomNavigationBar: _modoSeleccion
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: const Offset(0, -2))],
+              ),
+              child: SafeArea(
+                child: Row(
+                  children: [
+                    Text('${_seleccionados.length} seleccionados',
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    const Spacer(),
+                    if (widget.estado == 'pendiente') ...[
+                      OutlinedButton.icon(
+                        onPressed: _rechazarLote,
+                        icon: const Icon(Icons.close, color: Colors.red, size: 18),
+                        label: const Text('Rechazar'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.icon(
+                        onPressed: _aprobarLote,
+                        icon: const Icon(Icons.check, size: 18),
+                        label: const Text('Aprobar'),
+                        style: FilledButton.styleFrom(backgroundColor: Colors.green),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            )
+          : null,
       body: Column(
         children: [
           // Búsqueda
@@ -276,12 +450,19 @@ class _ContactosListScreenState extends State<ContactosListScreen> {
                           }
 
                           final contacto = _contactos[index];
+                          final seleccionado = _seleccionados.contains(contacto.id);
+
                           return _ContactoAdminCard(
                             contacto: contacto,
                             estado: widget.estado,
+                            seleccionado: seleccionado,
+                            modoSeleccion: _modoSeleccion,
+                            onTap: _modoSeleccion ? () => _toggleSeleccion(contacto.id) : null,
+                            onLongPress: () => _toggleSeleccion(contacto.id),
                             onAprobar: () => _aprobar(contacto),
                             onRechazar: () => _rechazar(contacto),
                             onEditar: () => _editar(contacto),
+                            onEditarYAprobar: () => _editar(contacto, aprobarAlGuardar: true),
                             onEliminar: () => _eliminar(contacto),
                           );
                         },
@@ -304,78 +485,110 @@ class _ContactosListScreenState extends State<ContactosListScreen> {
 class _ContactoAdminCard extends StatelessWidget {
   final Contacto contacto;
   final String estado;
+  final bool seleccionado;
+  final bool modoSeleccion;
+  final VoidCallback? onTap;
+  final VoidCallback onLongPress;
   final VoidCallback onAprobar;
   final VoidCallback onRechazar;
   final VoidCallback onEditar;
+  final VoidCallback onEditarYAprobar;
   final VoidCallback onEliminar;
 
   const _ContactoAdminCard({
     required this.contacto,
     required this.estado,
+    required this.seleccionado,
+    required this.modoSeleccion,
+    this.onTap,
+    required this.onLongPress,
     required this.onAprobar,
     required this.onRechazar,
     required this.onEditar,
+    required this.onEditarYAprobar,
     required this.onEliminar,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    contacto.nombreCompleto,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+    return GestureDetector(
+      onLongPress: onLongPress,
+      onTap: onTap,
+      child: Card(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        color: seleccionado ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.4) : null,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  if (modoSeleccion)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Icon(
+                        seleccionado ? Icons.check_circle : Icons.circle_outlined,
+                        color: seleccionado ? Theme.of(context).colorScheme.primary : Colors.grey,
+                        size: 22,
+                      ),
+                    ),
+                  Expanded(
+                    child: Text(
+                      contacto.nombreCompleto,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
                   ),
-                ),
-                if (contacto.creadoDesde != null)
-                  Chip(
-                    label: Text(contacto.creadoDesde!, style: const TextStyle(fontSize: 10)),
-                    padding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text('📱 ${contacto.telefono}'),
-            if (contacto.direccion != null) Text('📍 ${contacto.direccion}'),
-            if (contacto.ci != null) Text('🆔 ${contacto.ci}'),
-            if (contacto.motivoRechazo != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  '💬 Motivo: ${contacto.motivoRechazo}',
-                  style: TextStyle(color: Colors.red[700], fontSize: 12),
-                ),
+                  if (contacto.creadoDesde != null)
+                    Chip(
+                      label: Text(contacto.creadoDesde!, style: const TextStyle(fontSize: 10)),
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                ],
               ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                // Acciones según estado
-                if (estado == 'pendiente') ...[
-                  IconButton(icon: const Icon(Icons.edit, size: 20), onPressed: onEditar, tooltip: 'Editar'),
-                  IconButton(icon: const Icon(Icons.close, color: Colors.red, size: 20), onPressed: onRechazar, tooltip: 'Rechazar'),
-                  IconButton(icon: const Icon(Icons.check, color: Colors.green, size: 20), onPressed: onAprobar, tooltip: 'Aprobar'),
-                ],
-                if (estado == 'aprobado') ...[
-                  IconButton(icon: const Icon(Icons.edit, size: 20), onPressed: onEditar, tooltip: 'Editar'),
-                  IconButton(icon: const Icon(Icons.delete, color: Colors.red, size: 20), onPressed: onEliminar, tooltip: 'Eliminar'),
-                ],
-                if (estado == 'rechazado') ...[
-                  IconButton(icon: const Icon(Icons.check, color: Colors.green, size: 20), onPressed: onAprobar, tooltip: 'Re-aprobar'),
-                  IconButton(icon: const Icon(Icons.delete, color: Colors.red, size: 20), onPressed: onEliminar, tooltip: 'Eliminar'),
-                ],
+              const SizedBox(height: 4),
+              Text('📱 ${contacto.telefono}'),
+              if (contacto.provincia != null || contacto.municipio != null)
+                Text('📍 ${contacto.ubicacionCompleta ?? ""}'),
+              if (contacto.direccion != null) Text('🏠 ${contacto.direccion}'),
+              if (contacto.ci != null) Text('🆔 ${contacto.ci}'),
+              if (contacto.motivoRechazo != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    '💬 Motivo: ${contacto.motivoRechazo}',
+                    style: TextStyle(color: Colors.red[700], fontSize: 12),
+                  ),
+                ),
+              if (!modoSeleccion) ...[
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    if (estado == 'pendiente') ...[
+                      IconButton(icon: const Icon(Icons.edit, size: 20), onPressed: onEditar, tooltip: 'Editar'),
+                      IconButton(icon: const Icon(Icons.close, color: Colors.red, size: 20), onPressed: onRechazar, tooltip: 'Rechazar'),
+                      IconButton(icon: const Icon(Icons.check, color: Colors.green, size: 20), onPressed: onAprobar, tooltip: 'Aprobar'),
+                      IconButton(
+                        icon: const Icon(Icons.edit_note, color: Colors.teal, size: 20),
+                        onPressed: onEditarYAprobar,
+                        tooltip: 'Editar y Aprobar',
+                      ),
+                    ],
+                    if (estado == 'aprobado') ...[
+                      IconButton(icon: const Icon(Icons.edit, size: 20), onPressed: onEditar, tooltip: 'Editar'),
+                      IconButton(icon: const Icon(Icons.delete, color: Colors.red, size: 20), onPressed: onEliminar, tooltip: 'Eliminar'),
+                    ],
+                    if (estado == 'rechazado') ...[
+                      IconButton(icon: const Icon(Icons.check, color: Colors.green, size: 20), onPressed: onAprobar, tooltip: 'Re-aprobar'),
+                      IconButton(icon: const Icon(Icons.delete, color: Colors.red, size: 20), onPressed: onEliminar, tooltip: 'Eliminar'),
+                    ],
+                  ],
+                ),
               ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
