@@ -136,7 +136,7 @@ class _ImportarScreenState extends State<ImportarScreen> with WidgetsBindingObse
                     Text('📄 ${_archivo!.name}', style: const TextStyle(fontWeight: FontWeight.bold)),
                     Text('📦 ${(_archivo!.size / 1024 / 1024).toStringAsFixed(1)} MB'),
                     Text('📊 $_totalRegistros registros'),
-                    if (_totalRegistros > 0) Text('📦 ${(_totalRegistros / 100).ceil()} chunks de 100'),
+                    if (_totalRegistros > 0) Text('📦 ${(_totalRegistros / 500).ceil()} chunks de 500'),
                   ],
                 ))),
               ],

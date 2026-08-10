@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:permission_handler/permission_handler.dart';
 import '../models/contacto.dart';
 import '../services/local_database_service.dart';
 import '../services/supabase_service.dart';
@@ -203,8 +204,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return;
     }
 
+    // Pedir permiso de micrófono explícitamente
+    final micStatus = await Permission.microphone.request();
+    if (!micStatus.isGranted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('⚠️ Permiso de micrófono denegado. Actívalo en ajustes.')),
+        );
+      }
+      return;
+    }
+
     if (!_vozDisponible) {
-      // Reintentar init
       _vozDisponible = await _speech.initialize(
         onStatus: (status) {
           if (status == 'done' || status == 'notListening') {
@@ -223,7 +234,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (!_vozDisponible) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('⚠️ Reconocimiento de voz no disponible')),
+            const SnackBar(content: Text('⚠️ Reconocimiento de voz no disponible en este dispositivo')),
           );
         }
         return;

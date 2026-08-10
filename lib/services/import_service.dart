@@ -119,24 +119,40 @@ class ImportService {
       }
 
       try {
-        // UPSERT BATCH: 1 sola request para todo el chunk
-        // onConflict: 'telefono' → si existe, actualiza todos los campos
-        // Esto hace INSERT ... ON CONFLICT (telefono) DO UPDATE SET ...
-        final response = await client.from('contactos').upsert(
-          batch,
-          onConflict: 'telefono',
-        ).select('id, telefono');
-
-        // Contar: todos los que retorna son éxitos (nuevos o actualizados)
-        // Para distinguir: comparamos con los que ya existían antes
-        // Simplificación: upsert siempre retorna los registros, asumimos que
-        // la mayoría son actualizados si la BD ya tiene datos
-        final insertados = response.length;
+        // Primero: consultar cuáles teléfonos ya existen para distinguir nuevos vs actualizados
+        final telefonos = batch.map((b) => b['telefono'] as String).toList();
+        final existentes = await client.from('contactos')
+            .select('telefono, nombre, apellido')
+            .inFilter('telefono', telefonos);
         
-        // Heurística: si es la primera importación (BD vacía), son todos nuevos
-        // Si no, contamos como "procesados exitosamente" — la distinción exacta
-        // requeriría un SELECT previo que anularía la ganancia de rendimiento
-        nuevos += insertados;
+        final existentesMap = <String, Map<String, dynamic>>{};
+        for (final e in existentes) {
+          existentesMap[e['telefono'] as String] = e;
+        }
+
+        final realmente_nuevos = <Map<String, dynamic>>[];
+        final para_actualizar = <Map<String, dynamic>>[];
+
+        for (final item in batch) {
+          final tel = item['telefono'] as String;
+          if (existentesMap.containsKey(tel)) {
+            para_actualizar.add(item);
+          } else {
+            realmente_nuevos.add(item);
+          }
+        }
+
+        // Insertar los nuevos
+        if (realmente_nuevos.isNotEmpty) {
+          await client.from('contactos').upsert(realmente_nuevos, onConflict: 'telefono');
+          nuevos += realmente_nuevos.length;
+        }
+
+        // Actualizar los existentes
+        if (para_actualizar.isNotEmpty) {
+          await client.from('contactos').upsert(para_actualizar, onConflict: 'telefono');
+          actualizados += para_actualizar.length;
+        }
 
       } catch (e) {
         final errStr = e.toString();
