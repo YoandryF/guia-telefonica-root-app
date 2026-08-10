@@ -1,7 +1,7 @@
 name: guia_telefonica
 description: Guía Telefónica Colaborativa - Offline-first con Supabase
 publish_to: 'none'
-version: 3.2.0+33
+version: 3.3.0+34
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -72,3 +72,5 @@ flutter_launcher_icons:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/cuba_ubicaciones.json

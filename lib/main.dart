@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/supabase_config.dart';
 import 'screens/splash_screen.dart';
 import 'providers/theme_provider.dart';
+import 'services/ubicacion_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -12,6 +13,8 @@ void main() async {
     url: SupabaseConfig.url,
     anonKey: SupabaseConfig.anonKey,
   );
+
+  await UbicacionService.init();
 
   runApp(const ProviderScope(child: GuiaTelefonicaApp()));
 }
