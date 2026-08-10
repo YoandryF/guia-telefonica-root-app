@@ -108,7 +108,7 @@ class _ImportarScreenState extends State<ImportarScreen> with WidgetsBindingObse
   Widget build(BuildContext context) {
     return PopScope(
       canPop: !_importando,
-      onPopInvokedWithResult: (didPop, _) {
+      onPopInvoked: (didPop) {
         if (!didPop && _importando) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('⚠️ Importación en progreso. Espera a que termine.')),
