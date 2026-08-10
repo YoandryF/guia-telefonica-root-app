@@ -2,6 +2,7 @@
 
 | Versión | Fecha | Cambios principales |
 |---|---|---|
+| v3.2.0 | 2026-08-09 | Import batch (100/chunk) con progreso y reintentar, fix aprobación, búsqueda por voz, onboarding, PDF, scanner 2 botones, verificación Telegram |
 | v3.1.0 | 2026-08-08 | Hero animations, voz, onboarding, PDF, scanner 2 botones, verificación Telegram |
 | v3.0.0 | 2026-08-08 | 2 niveles visuales, dashboard, auto-aprobación, detección ataques, cron expiración |
 | v2.9.0 | 2026-08-08 | Avales, reclamos, trust score, config dinámica |
