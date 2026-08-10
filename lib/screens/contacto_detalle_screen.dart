@@ -102,9 +102,7 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
   }
 
   Future<void> _abrirWhatsApp() async {
-    // Limpiar número (quitar guiones, espacios)
     final numero = widget.contacto.telefono.replaceAll(RegExp(r'[^0-9+]'), '');
-    // Si no tiene código de país, asumir Cuba (+53)
     final completo = numero.startsWith('+') ? numero : '+53$numero';
     final uri = Uri.parse('https://wa.me/${completo.replaceAll('+', '')}');
     if (await canLaunchUrl(uri)) {
@@ -113,8 +111,14 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
   }
 
   Future<void> _verEnMapa() async {
-    if (widget.contacto.direccion == null) return;
-    final query = Uri.encodeComponent(widget.contacto.direccion!);
+    final c = widget.contacto;
+    // Construir query con ubicación completa
+    final partes = <String>[];
+    if (c.direccion != null) partes.add(c.direccion!);
+    if (c.municipio != null) partes.add(c.municipio!);
+    if (c.provincia != null) partes.add(c.provincia!);
+    if (partes.isEmpty) return;
+    final query = Uri.encodeComponent(partes.join(', '));
     final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$query');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -133,7 +137,8 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
     String texto = '📋 Contacto de Guía Telefónica:\n'
         '👤 ${c.nombreCompleto}\n'
         '📱 ${c.telefono}\n';
-    if (c.direccion != null) texto += '📍 ${c.direccion}\n';
+    if (c.ubicacionCompleta != null) texto += '📍 ${c.ubicacionCompleta}\n';
+    if (c.direccion != null) texto += '🏠 ${c.direccion}\n';
     if (c.ci != null) texto += '🆔 CI: ${c.ci}\n';
     if (c.categoriaNombre != null) texto += '📂 ${c.categoriaNombre}\n';
 
@@ -142,29 +147,6 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
 
   Future<void> _guardarEnAgenda() async {
     final c = widget.contacto;
-    // Intent para crear contacto en la agenda nativa
-    final uri = Uri(
-      scheme: 'content',
-      host: 'com.android.contacts',
-      path: '/contacts',
-    );
-
-    // Usar intent directo de Android para agregar contacto
-    final addContactUri = Uri.parse(
-      'content://com.android.contacts/contacts#Intent;'
-      'action=android.intent.action.INSERT;'
-      'type=vnd.android.cursor.dir/contact;'
-      'S.name=${c.nombreCompleto};'
-      'S.phone=${c.telefono};'
-      'end',
-    );
-
-    // Método más compatible: abrir con ACTION_INSERT
-    final contactUri = Uri.parse(
-      'https://contacts.google.com/new?name=${Uri.encodeComponent(c.nombreCompleto)}&phone=${Uri.encodeComponent(c.telefono)}',
-    );
-
-    // Intentar con el método de intent de Android
     try {
       final intent = Uri.parse('intent://contacts#Intent;action=android.intent.action.INSERT;type=vnd.android.cursor.dir/contact;S.name=${Uri.encodeComponent(c.nombreCompleto)};S.phone=${Uri.encodeComponent(c.telefono)};end');
       if (await canLaunchUrl(intent)) {
@@ -173,7 +155,6 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
       }
     } catch (_) {}
 
-    // Fallback: copiar datos y notificar
     final datos = '${c.nombreCompleto}\n${c.telefono}${c.direccion != null ? '\n${c.direccion}' : ''}';
     Clipboard.setData(ClipboardData(text: datos));
     if (mounted) {
@@ -190,7 +171,7 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
         'N:${c.apellido};${c.nombre}\n'
         'FN:${c.nombreCompleto}\n'
         'TEL:${c.telefono}\n'
-        '${c.direccion != null ? 'ADR:;;${c.direccion}\n' : ''}'
+        '${c.direccion != null ? 'ADR:;;${c.direccion};;;${c.municipio ?? ''};\n' : ''}'
         'END:VCARD';
 
     showDialog(
@@ -369,6 +350,18 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(c.nombreCompleto, style: theme.textTheme.headlineSmall),
+                  if (c.ubicacionCompleta != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.location_on, size: 14, color: Colors.grey),
+                          const SizedBox(width: 4),
+                          Text(c.ubicacionCompleta!, style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey)),
+                        ],
+                      ),
+                    ),
                   if (c.categoriaNombre != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
@@ -448,6 +441,17 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
                 _AccionBtn(icon: Icons.copy, label: 'Copiar', onTap: () => _copiar(c.telefono, 'Teléfono')),
               ],
             ),
+
+            // Ubicación
+            if (c.provincia != null || c.municipio != null)
+              _SeccionDato(
+                icono: Icons.map,
+                label: 'Ubicación',
+                valor: c.ubicacionCompleta ?? '',
+                acciones: [
+                  _AccionBtn(icon: Icons.map, label: 'Mapa', color: Colors.red, onTap: _verEnMapa),
+                ],
+              ),
 
             // Dirección
             if (c.direccion != null)
