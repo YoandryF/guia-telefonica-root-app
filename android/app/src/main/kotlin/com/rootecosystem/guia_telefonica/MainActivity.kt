@@ -220,25 +220,12 @@ class MainActivity : FlutterActivity() {
 
     private fun removeGuiaContacts(): Int {
         val cr = contentResolver
-        val cursor = cr.query(
+        // Batch delete: una sola operación SQL, sin loop
+        val count = cr.delete(
             ContactsContract.RawContacts.CONTENT_URI,
-            arrayOf(ContactsContract.RawContacts._ID),
             "${ContactsContract.RawContacts.ACCOUNT_TYPE} = ?",
-            arrayOf("com.rootecosystem.guia_telefonica"),
-            null
+            arrayOf("com.rootecosystem.guia_telefonica")
         )
-        var count = 0
-        cursor?.use {
-            while (it.moveToNext()) {
-                val id = it.getLong(0)
-                cr.delete(
-                    ContactsContract.RawContacts.CONTENT_URI,
-                    "${ContactsContract.RawContacts._ID} = ?",
-                    arrayOf(id.toString())
-                )
-                count++
-            }
-        }
         return count
     }
 
@@ -246,34 +233,38 @@ class MainActivity : FlutterActivity() {
         val cr = contentResolver
         val cleanPhone = phone.replace("-", "").replace(" ", "")
 
-        // Buscar raw contacts de nuestra cuenta que tengan este teléfono
+        // Buscar el contacto por teléfono usando PhoneLookup (indexado, rápido)
+        val lookupUri = Uri.withAppendedPath(
+            ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+            Uri.encode(cleanPhone)
+        )
         val cursor = cr.query(
-            ContactsContract.RawContacts.CONTENT_URI,
-            arrayOf(ContactsContract.RawContacts._ID),
-            "${ContactsContract.RawContacts.ACCOUNT_TYPE} = ?",
-            arrayOf("com.rootecosystem.guia_telefonica"),
-            null
+            lookupUri,
+            arrayOf(ContactsContract.PhoneLookup._ID),
+            null, null, null
         )
 
         cursor?.use {
             while (it.moveToNext()) {
-                val rawId = it.getLong(0)
-                // Verificar si este raw contact tiene el teléfono buscado
-                val phoneCursor = cr.query(
-                    ContactsContract.Data.CONTENT_URI,
-                    arrayOf(ContactsContract.Data._ID),
-                    "${ContactsContract.Data.RAW_CONTACT_ID} = ? AND ${ContactsContract.Data.MIMETYPE} = ? AND ${ContactsContract.CommonDataKinds.Phone.NUMBER} LIKE ?",
-                    arrayOf(rawId.toString(), ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE, "%$cleanPhone%"),
+                val contactId = it.getLong(0)
+                // Buscar el raw contact de NUESTRA cuenta para este contacto
+                val rawCursor = cr.query(
+                    ContactsContract.RawContacts.CONTENT_URI,
+                    arrayOf(ContactsContract.RawContacts._ID),
+                    "${ContactsContract.RawContacts.CONTACT_ID} = ? AND ${ContactsContract.RawContacts.ACCOUNT_TYPE} = ?",
+                    arrayOf(contactId.toString(), "com.rootecosystem.guia_telefonica"),
                     null
                 )
-                val hasPhone = phoneCursor?.use { pc -> pc.moveToFirst() } ?: false
-                if (hasPhone) {
-                    cr.delete(
-                        ContactsContract.RawContacts.CONTENT_URI,
-                        "${ContactsContract.RawContacts._ID} = ?",
-                        arrayOf(rawId.toString())
-                    )
-                    return true
+                rawCursor?.use { rc ->
+                    if (rc.moveToFirst()) {
+                        val rawId = rc.getLong(0)
+                        cr.delete(
+                            ContactsContract.RawContacts.CONTENT_URI,
+                            "${ContactsContract.RawContacts._ID} = ?",
+                            arrayOf(rawId.toString())
+                        )
+                        return true
+                    }
                 }
             }
         }
