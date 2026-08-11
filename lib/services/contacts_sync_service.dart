@@ -109,7 +109,7 @@ class ContactsSyncService {
     return {'created': created, 'updated': updated, 'exists': exists};
   }
 
-  /// Eliminar todos los contactos de "Guía Telefónica" de la agenda
+  /// Eliminar todos los contactos de "Guía Telefónica" de la agenda (batch rápido)
   Future<int> removeAll() async {
     try {
       final count = await _channel.invokeMethod('removeGuiaContacts');
@@ -119,7 +119,7 @@ class ContactsSyncService {
     }
   }
 
-  /// Eliminar con progreso (Stream) — elimina uno por uno para mostrar avance
+  /// Eliminar contactos específicos con progreso (Stream)
   Stream<SyncProgress> removeContactosStream(List<Contacto> contactos) async* {
     int removed = 0, errors = 0;
     final total = contactos.length;
@@ -127,12 +127,14 @@ class ContactsSyncService {
     for (var i = 0; i < contactos.length; i++) {
       final c = contactos[i];
       try {
-        await _channel.invokeMethod('removeContact', {
-          'nombre': c.nombre,
-          'apellido': c.apellido,
+        final result = await _channel.invokeMethod('removeContact', {
           'telefono': c.telefono,
         });
-        removed++;
+        if (result == true) {
+          removed++;
+        } else {
+          errors++;
+        }
       } catch (_) {
         errors++;
       }

@@ -75,6 +75,11 @@ class MainActivity : FlutterActivity() {
                     val count = removeGuiaContacts()
                     result.success(count)
                 }
+                "removeContact" -> {
+                    val telefono = call.argument<String>("telefono") ?: ""
+                    val removed = removeContactByPhone(telefono)
+                    result.success(removed)
+                }
                 "getPhoneContacts" -> {
                     val contacts = getPhoneContacts()
                     result.success(contacts)
@@ -235,6 +240,44 @@ class MainActivity : FlutterActivity() {
             }
         }
         return count
+    }
+
+    private fun removeContactByPhone(phone: String): Boolean {
+        val cr = contentResolver
+        val cleanPhone = phone.replace("-", "").replace(" ", "")
+
+        // Buscar raw contacts de nuestra cuenta que tengan este teléfono
+        val cursor = cr.query(
+            ContactsContract.RawContacts.CONTENT_URI,
+            arrayOf(ContactsContract.RawContacts._ID),
+            "${ContactsContract.RawContacts.ACCOUNT_TYPE} = ?",
+            arrayOf("com.rootecosystem.guia_telefonica"),
+            null
+        )
+
+        cursor?.use {
+            while (it.moveToNext()) {
+                val rawId = it.getLong(0)
+                // Verificar si este raw contact tiene el teléfono buscado
+                val phoneCursor = cr.query(
+                    ContactsContract.Data.CONTENT_URI,
+                    arrayOf(ContactsContract.Data._ID),
+                    "${ContactsContract.Data.RAW_CONTACT_ID} = ? AND ${ContactsContract.Data.MIMETYPE} = ? AND ${ContactsContract.CommonDataKinds.Phone.NUMBER} LIKE ?",
+                    arrayOf(rawId.toString(), ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE, "%$cleanPhone%"),
+                    null
+                )
+                val hasPhone = phoneCursor?.use { pc -> pc.moveToFirst() } ?: false
+                if (hasPhone) {
+                    cr.delete(
+                        ContactsContract.RawContacts.CONTENT_URI,
+                        "${ContactsContract.RawContacts._ID} = ?",
+                        arrayOf(rawId.toString())
+                    )
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private fun openContactByPhone(phone: String) {

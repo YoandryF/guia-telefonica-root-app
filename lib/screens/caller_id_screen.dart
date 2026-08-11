@@ -187,7 +187,26 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
     }
 
     // Eliminar todos con progreso
-    _iniciarEliminacion(_contactos);
+    setState(() {
+      _sincronizando = true;
+      _progreso = null;
+      _modo = 'eliminando';
+    });
+
+    final count = await _syncService.removeAll();
+    
+    if (mounted) {
+      setState(() {
+        _progreso = SyncProgress(
+          total: count,
+          procesados: count,
+          created: count,
+          completado: true,
+        );
+        _sincronizando = false;
+        _modo = 'completado_eliminar';
+      });
+    }
   }
 
   void _iniciarEliminacion(List<Contacto> contactos) {
