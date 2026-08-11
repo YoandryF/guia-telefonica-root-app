@@ -16,6 +16,13 @@ jobs:
             -H 'Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}' \
             -H 'Content-Type: application/json'
 
+      - name: Detect phone prefix patterns
+        run: |
+          curl -X POST '${{ secrets.SUPABASE_URL }}/rest/v1/rpc/detectar_patrones_prefijo' \
+            -H 'apikey: ${{ secrets.SUPABASE_SERVICE_KEY }}' \
+            -H 'Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}' \
+            -H 'Content-Type: application/json'
+
       - name: Cleanup old evidence from Telegram group
         run: |
           curl -X POST '${{ secrets.BOT_RENDER_URL }}/cleanup-evidencias' \

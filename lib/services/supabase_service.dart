@@ -325,6 +325,8 @@ class SupabaseService {
       if (status == 'LIMITE') return {'error': 'Has alcanzado el límite de reportes por hoy'};
       if (status == 'BANEADO') return {'error': 'No tienes permiso para reportar'};
       if (status == 'ATAQUE') return {'error': 'Demasiados reportes en poco tiempo'};
+      if (status == 'YA_REPORTADO') return {'error': 'Ya tienes un reporte activo sobre este contacto'};
+      if (status == 'COOLDOWN') return {'error': 'Debes esperar antes de reportar este contacto nuevamente'};
       return {'error': status};
     } catch (e) {
       return {'error': e.toString()};
