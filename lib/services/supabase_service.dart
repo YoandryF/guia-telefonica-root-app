@@ -288,6 +288,7 @@ class SupabaseService {
     String? descripcion,
     String? dispositivoId,
     String? telegramUserId,
+    int? evidenciaMsgId,
   }) async {
     try {
       final result = await _client.rpc('insertar_reporte', params: {
@@ -299,9 +300,29 @@ class SupabaseService {
         'p_telegram_user_id': telegramUserId,
       });
       final status = result.toString();
-      if (status == 'OK') return {'error': null};
+      if (status == 'OK' || status == 'AUTO_APROBADO') {
+        // Si hay evidencia, actualizar el último reporte con el msg_id
+        if (evidenciaMsgId != null) {
+          try {
+            final reportes = await _client
+                .from('reportes')
+                .select('id')
+                .eq('contacto_id', contactoId)
+                .eq('reportado_por', telegramUserId ?? '')
+                .order('fecha_reporte', ascending: false)
+                .limit(1);
+            if (reportes.isNotEmpty) {
+              await _client.from('reportes').update({
+                'evidencia_msg_id': evidenciaMsgId,
+              }).eq('id', reportes[0]['id']);
+            }
+          } catch (_) {}
+        }
+        return {'error': null};
+      }
       if (status == 'LIMITE') return {'error': 'Has alcanzado el límite de reportes por hoy'};
       if (status == 'BANEADO') return {'error': 'No tienes permiso para reportar'};
+      if (status == 'ATAQUE') return {'error': 'Demasiados reportes en poco tiempo'};
       return {'error': status};
     } catch (e) {
       return {'error': e.toString()};

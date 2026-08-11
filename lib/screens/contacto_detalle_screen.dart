@@ -1,11 +1,14 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/contacto.dart';
 import '../services/local_database_service.dart';
 import '../services/supabase_service.dart';
+import '../services/telegram_evidence_service.dart';
 import 'verificacion_telegram_screen.dart';
 
 class ContactoDetalleScreen extends StatefulWidget {
@@ -270,33 +273,84 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
 
     String? motivoSeleccionado;
     final descripcionCtrl = TextEditingController();
+    File? evidencia;
 
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           title: const Text('⚠️ Reportar contacto'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ...motivos.map((m) => RadioListTile<String>(
-                title: Text(m['label']!, style: const TextStyle(fontSize: 14)),
-                value: m['value']!,
-                groupValue: motivoSeleccionado,
-                onChanged: (v) => setDialogState(() => motivoSeleccionado = v),
-                dense: true,
-              )),
-              const SizedBox(height: 8),
-              TextField(
-                controller: descripcionCtrl,
-                decoration: const InputDecoration(
-                  hintText: 'Descripción (opcional)',
-                  border: OutlineInputBorder(),
-                  isDense: true,
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ...motivos.map((m) => RadioListTile<String>(
+                  title: Text(m['label']!, style: const TextStyle(fontSize: 14)),
+                  value: m['value']!,
+                  groupValue: motivoSeleccionado,
+                  onChanged: (v) => setDialogState(() => motivoSeleccionado = v),
+                  dense: true,
+                )),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: descripcionCtrl,
+                  decoration: const InputDecoration(
+                    hintText: 'Descripción (opcional)',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  maxLines: 2,
                 ),
-                maxLines: 2,
-              ),
-            ],
+                const SizedBox(height: 12),
+
+                // Botón de evidencia
+                if (evidencia == null)
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final source = await showModalBottomSheet<ImageSource>(
+                        context: ctx,
+                        builder: (bCtx) => SafeArea(
+                          child: Wrap(children: [
+                            ListTile(
+                              leading: const Icon(Icons.camera_alt),
+                              title: const Text('Cámara'),
+                              onTap: () => Navigator.pop(bCtx, ImageSource.camera),
+                            ),
+                            ListTile(
+                              leading: const Icon(Icons.photo_library),
+                              title: const Text('Galería'),
+                              onTap: () => Navigator.pop(bCtx, ImageSource.gallery),
+                            ),
+                          ]),
+                        ),
+                      );
+                      if (source == null) return;
+                      final svc = TelegramEvidenceService();
+                      final file = await svc.pickImage(source: source);
+                      if (file != null) {
+                        setDialogState(() => evidencia = file);
+                      }
+                    },
+                    icon: const Icon(Icons.attach_file),
+                    label: const Text('Adjuntar evidencia'),
+                  )
+                else
+                  Column(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(evidencia!, height: 120, width: double.infinity, fit: BoxFit.cover),
+                      ),
+                      const SizedBox(height: 4),
+                      TextButton.icon(
+                        onPressed: () => setDialogState(() => evidencia = null),
+                        icon: const Icon(Icons.close, size: 16),
+                        label: const Text('Quitar', style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
@@ -311,11 +365,33 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
 
     if (result != true || motivoSeleccionado == null) return;
 
+    // Enviar evidencia a Telegram si hay
+    int? evidenciaMsgId;
+    if (evidencia != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('📤 Subiendo evidencia...')),
+        );
+      }
+      final evSvc = TelegramEvidenceService();
+      final evResult = await evSvc.enviarEvidencia(
+        imagen: evidencia!,
+        contactoNombre: '${widget.contacto.nombre} ${widget.contacto.apellido}',
+        contactoTelefono: widget.contacto.telefono,
+        motivo: motivoSeleccionado!,
+        reportadorUsername: identity.username ?? identity.userId,
+      );
+      if (evResult.success) {
+        evidenciaMsgId = evResult.messageId;
+      }
+    }
+
     final resp = await SupabaseService().reportarContacto(
       contactoId: widget.contacto.id,
       motivo: motivoSeleccionado!,
       descripcion: descripcionCtrl.text.isNotEmpty ? descripcionCtrl.text : null,
       telegramUserId: identity.userId,
+      evidenciaMsgId: evidenciaMsgId,
     );
 
     if (mounted) {

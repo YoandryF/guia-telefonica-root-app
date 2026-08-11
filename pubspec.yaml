@@ -51,6 +51,9 @@ dependencies:
   # QR
   qr_flutter: ^4.1.0
 
+  # Evidencias (cámara/galería)
+  image_picker: ^1.0.7
+
   # PDF
   pdf: ^3.10.0
 

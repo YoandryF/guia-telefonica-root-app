@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/supabase_service.dart';
+import '../services/telegram_evidence_service.dart';
 
 class ReportesAdminScreen extends StatefulWidget {
   const ReportesAdminScreen({super.key});
@@ -203,6 +205,29 @@ class _ReportesContactoScreenState extends State<_ReportesContactoScreen> {
     _cargar();
   }
 
+  Future<void> _abrirEvidencia(dynamic msgId) async {
+    // Abrir el grupo de evidencias en Telegram
+    // El admin puede buscar el mensaje por ID en el grupo
+    final chatId = TelegramEvidenceConfig.evidenceGroupId;
+    if (chatId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⚠️ Grupo de evidencias no configurado')),
+      );
+      return;
+    }
+    // Intentar abrir el grupo de Telegram
+    final uri = Uri.parse('https://t.me/c/${chatId.replaceFirst('-100', '')}/$msgId');
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('📎 Evidencia: mensaje #$msgId en el grupo de evidencias')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -228,6 +253,17 @@ class _ReportesContactoScreenState extends State<_ReportesContactoScreen> {
                             Row(
                               children: [
                                 Text('$estadoIcon ${_motivoLabel(r['motivo'] ?? '')}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                if (r['evidencia_msg_id'] != null) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Text('📎 Evidencia', style: TextStyle(fontSize: 10, color: Colors.blue)),
+                                  ),
+                                ],
                                 const Spacer(),
                                 Text(_formatFecha(r['fecha_reporte']), style: const TextStyle(fontSize: 11, color: Colors.grey)),
                               ],
@@ -236,6 +272,21 @@ class _ReportesContactoScreenState extends State<_ReportesContactoScreen> {
                               Padding(
                                 padding: const EdgeInsets.only(top: 4),
                                 child: Text('💬 ${r['descripcion']}', style: const TextStyle(fontSize: 12)),
+                              ),
+                            if (r['evidencia_msg_id'] != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: InkWell(
+                                  onTap: () => _abrirEvidencia(r['evidencia_msg_id']),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.image, size: 14, color: Colors.blue),
+                                      SizedBox(width: 4),
+                                      Text('Ver evidencia en Telegram', style: TextStyle(fontSize: 12, color: Colors.blue, decoration: TextDecoration.underline)),
+                                    ],
+                                  ),
+                                ),
                               ),
                             const SizedBox(height: 8),
                             Row(
