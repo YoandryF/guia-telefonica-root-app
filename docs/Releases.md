@@ -2,6 +2,11 @@
 
 | Versión | Fecha | Cambios principales |
 |---|---|---|
+| v3.6.0 | 2026-08-11 | Evidencias en reportes (foto via Telegram), visor inline con zoom, limpieza auto 30 días, fix eliminar agenda, categorías con paleta colores/íconos |
+| v3.5.1 | 2026-08-11 | Fix eliminar de agenda (removeContact nativo), categorías con paleta visual colores e íconos |
+| v3.5.0 | 2026-08-11 | Voz con Intent nativo Google, scroll infinito, sync detecta desfase (25k+), banner progreso sync, ícono animado AppBar |
+| v3.4.0 | 2026-08-10 | Verificación Telegram para reportar/avalar/reclamar, fix búsqueda por voz, import distingue nuevos vs actualizados, sync agenda con progreso + selección individual |
+| v3.3.0 | 2026-08-10 | Ubicación geográfica (provincia/municipio), filtros BottomSheet, import batch 50x más rápido, edición en lote |
 | v3.2.0 | 2026-08-09 | Import batch (100/chunk) con progreso y reintentar, fix aprobación, búsqueda por voz, onboarding, PDF, scanner 2 botones, verificación Telegram |
 | v3.1.0 | 2026-08-08 | Hero animations, voz, onboarding, PDF, scanner 2 botones, verificación Telegram |
 | v3.0.0 | 2026-08-08 | 2 niveles visuales, dashboard, auto-aprobación, detección ataques, cron expiración |
