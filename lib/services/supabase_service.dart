@@ -45,6 +45,16 @@ class SupabaseService {
     return allContactos;
   }
 
+  Future<int> contarContactosAprobados() async {
+    final response = await _client
+        .from('contactos')
+        .select()
+        .eq('estado', 'aprobado')
+        .isFilter('deleted_at', null)
+        .count(CountOption.exact);
+    return response.count;
+  }
+
   Future<List<String>> getContactosEliminadosDesde(DateTime fecha) async {
     final response = await _client
         .from('contactos')

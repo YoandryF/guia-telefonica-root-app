@@ -46,6 +46,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _filtrosActivos = 0;
   static const _pageSize = 50;
   int _paginaActual = 1;
+  final _scrollController = ScrollController();
 
   @override
   void initState() {
@@ -55,10 +56,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _sincronizar();
     _verificarActualizacion();
     _initVoz();
+    _scrollController.addListener(_onScroll);
     Connectivity().onConnectivityChanged.listen((result) {
       setState(() => _online = result != ConnectivityResult.none);
       if (_online) _sincronizar();
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _initVoz() async {
@@ -114,16 +123,54 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _aplicarFiltros();
   }
 
+  Future<void> _resincronizarTodo() async {
+    setState(() => _cargando = true);
+    try {
+      // Descarga TODOS los contactos aprobados (sin filtro de fecha)
+      final todos = await _supabaseService.getContactosAprobadosDesde(null);
+      if (todos.isNotEmpty) {
+        await _localDb.sincronizarBatch(todos);
+      }
+      await _localDb.guardarUltimaSincronizacion(DateTime.now());
+      await _cargarContactos();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('✅ Sincronización completa: ${todos.length} contactos')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+    setState(() => _cargando = false);
+  }
+
   Future<void> _sincronizar() async {
     try {
       final ultimaSync = await _localDb.getUltimaSincronizacion();
-      final nuevos = await _supabaseService.getContactosAprobadosDesde(ultimaSync);
 
-      if (nuevos.isNotEmpty) {
-        await _localDb.sincronizarBatch(nuevos);
-      }
+      // Verificar si hay desfase: contar en Supabase vs local
+      final totalRemoto = await _supabaseService.contarContactosAprobados();
+      final totalLocal = _contactos.length;
 
-      if (ultimaSync != null) {
+      // Si la diferencia es > 10%, hacer sync completa
+      final desfase = totalRemoto - totalLocal;
+      if (desfase > 50 || ultimaSync == null) {
+        // Sync completa
+        final todos = await _supabaseService.getContactosAprobadosDesde(null);
+        if (todos.isNotEmpty) {
+          await _localDb.sincronizarBatch(todos);
+        }
+      } else {
+        // Sync incremental normal
+        final nuevos = await _supabaseService.getContactosAprobadosDesde(ultimaSync);
+        if (nuevos.isNotEmpty) {
+          await _localDb.sincronizarBatch(nuevos);
+        }
+
         final eliminados = await _supabaseService.getContactosEliminadosDesde(ultimaSync);
         for (final id in eliminados) {
           await _localDb.eliminarContacto(id);
@@ -201,6 +248,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   void _cargarMas() {
+    if (_visibles.length >= _filtrados.length) return;
     setState(() {
       _paginaActual++;
       _visibles = _filtrados.take(_paginaActual * _pageSize).toList();
@@ -208,6 +256,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   bool get _hayMas => _visibles.length < _filtrados.length;
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      _cargarMas();
+    }
+  }
 
   void _filtrar(String query) {
     _aplicarFiltros();
@@ -444,6 +498,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 case 'update':
                   _buscarActualizacion(manual: true);
                   break;
+                case 'resync':
+                  _resincronizarTodo();
+                  break;
                 case 'callerid':
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const CallerIdScreen()));
                   break;
@@ -460,6 +517,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             },
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'callerid', child: ListTile(leading: Icon(Icons.phone_callback), title: Text('Identificador de llamadas'), dense: true)),
+              const PopupMenuItem(value: 'resync', child: ListTile(leading: Icon(Icons.cloud_download), title: Text('Resincronizar todo'), dense: true)),
               const PopupMenuItem(value: 'scan', child: ListTile(leading: Icon(Icons.security), title: Text('Escanear agenda'), dense: true)),
               const PopupMenuItem(value: 'listanegra', child: ListTile(leading: Icon(Icons.warning_amber, color: Colors.red), title: Text('Lista Negra'), dense: true)),
               const PopupMenuItem(value: 'update', child: ListTile(leading: Icon(Icons.system_update), title: Text('Buscar actualización'), dense: true)),
@@ -586,7 +644,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
             child: Row(
               children: [
-                Text('${_visibles.length} de ${_filtrados.length} contactos', style: Theme.of(context).textTheme.bodySmall),
+                Text('${_filtrados.length} contactos', style: Theme.of(context).textTheme.bodySmall),
                 const Spacer(),
                 if (_ultimaSync != null)
                   Text('Sync: ${_formatearFecha(_ultimaSync!)}', style: Theme.of(context).textTheme.bodySmall),
@@ -647,17 +705,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     : RefreshIndicator(
                         onRefresh: _sincronizar,
                         child: ListView.builder(
+                          controller: _scrollController,
                           itemCount: _visibles.length + (_hayMas ? 1 : 0),
                           itemBuilder: (context, index) {
                             if (index == _visibles.length) {
-                              // Botón "Cargar más"
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-                                child: OutlinedButton.icon(
-                                  onPressed: _cargarMas,
-                                  icon: const Icon(Icons.expand_more),
-                                  label: Text('Cargar más (${_filtrados.length - _visibles.length} restantes)'),
-                                ),
+                              return const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 16),
+                                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
                               );
                             }
                             return _ContactoCard(
