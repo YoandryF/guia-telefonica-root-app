@@ -40,7 +40,7 @@ jobs:
         run: flutter pub get
 
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --dart-define=TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }} --dart-define=TELEGRAM_EVIDENCE_GROUP=${{ secrets.TELEGRAM_EVIDENCE_GROUP }}
 
       - name: Get version from tag
         id: version
