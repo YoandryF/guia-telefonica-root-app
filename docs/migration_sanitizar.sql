@@ -24,8 +24,8 @@ BEGIN
   -- Reemplazar non-breaking spaces y otros space-like por espacio normal
   result := regexp_replace(result, E'[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]', ' ', 'g');
 
-  -- Eliminar caracteres de control
-  result := regexp_replace(result, E'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', 'g');
+  -- Eliminar caracteres de control (sin \x00, PostgreSQL no lo permite)
+  result := regexp_replace(result, E'[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]', '', 'g');
 
   -- Reemplazar tabs y saltos de línea por espacio
   result := regexp_replace(result, E'[\t\r\n]', ' ', 'g');
