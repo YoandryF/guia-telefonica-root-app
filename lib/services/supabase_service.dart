@@ -6,13 +6,20 @@ class SupabaseService {
 
   // === CONTACTOS PÚBLICOS ===
 
-  Future<List<Contacto>> getContactosAprobadosDesde(DateTime? fecha) async {
+  Future<List<Contacto>> getContactosAprobadosDesde(DateTime? fecha, {void Function(int descargados, int total)? onProgress}) async {
     // Supabase tiene límite por request (1000 por defecto)
     // Paginamos para traer todos los contactos
     const pageSize = 1000;
     final allContactos = <Contacto>[];
     int offset = 0;
     bool hayMas = true;
+
+    // Si tenemos callback de progreso, obtener el total primero
+    int total = 0;
+    if (onProgress != null) {
+      total = await contarContactosAprobados();
+      onProgress(0, total);
+    }
 
     while (hayMas) {
       var query = _client
@@ -34,6 +41,10 @@ class SupabaseService {
 
       final lista = (response as List);
       allContactos.addAll(lista.map((json) => Contacto.fromJson(json)));
+
+      if (onProgress != null) {
+        onProgress(allContactos.length, total);
+      }
 
       if (lista.length < pageSize) {
         hayMas = false;

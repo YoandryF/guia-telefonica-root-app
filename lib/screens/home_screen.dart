@@ -48,6 +48,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _paginaActual = 1;
   final _scrollController = ScrollController();
 
+  // Estado de sincronización
+  bool _sincronizando = false;
+  int _syncDescargados = 0;
+  int _syncTotal = 0;
+
   @override
   void initState() {
     super.initState();
@@ -113,10 +118,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _resincronizarTodo() async {
-    setState(() => _cargando = true);
+    setState(() {
+      _sincronizando = true;
+      _syncDescargados = 0;
+      _syncTotal = 0;
+    });
     try {
-      // Descarga TODOS los contactos aprobados (sin filtro de fecha)
-      final todos = await _supabaseService.getContactosAprobadosDesde(null);
+      final todos = await _supabaseService.getContactosAprobadosDesde(null, onProgress: (descargados, total) {
+        if (mounted) setState(() { _syncDescargados = descargados; _syncTotal = total; });
+      });
       if (todos.isNotEmpty) {
         await _localDb.sincronizarBatch(todos);
       }
@@ -134,27 +144,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         );
       }
     }
-    setState(() => _cargando = false);
+    if (mounted) setState(() => _sincronizando = false);
   }
 
   Future<void> _sincronizar() async {
+    if (_sincronizando) return;
+    setState(() {
+      _sincronizando = true;
+      _syncDescargados = 0;
+      _syncTotal = 0;
+    });
+
     try {
       final ultimaSync = await _localDb.getUltimaSincronizacion();
-
-      // Verificar si hay desfase: contar en Supabase vs local
       final totalRemoto = await _supabaseService.contarContactosAprobados();
       final totalLocal = _contactos.length;
 
-      // Si la diferencia es > 10%, hacer sync completa
       final desfase = totalRemoto - totalLocal;
       if (desfase > 50 || ultimaSync == null) {
-        // Sync completa
-        final todos = await _supabaseService.getContactosAprobadosDesde(null);
+        // Sync completa con progreso
+        final todos = await _supabaseService.getContactosAprobadosDesde(null, onProgress: (descargados, total) {
+          if (mounted) setState(() { _syncDescargados = descargados; _syncTotal = total; });
+        });
         if (todos.isNotEmpty) {
           await _localDb.sincronizarBatch(todos);
         }
       } else {
-        // Sync incremental normal
+        // Sync incremental (rápida, sin barra de progreso)
         final nuevos = await _supabaseService.getContactosAprobadosDesde(ultimaSync);
         if (nuevos.isNotEmpty) {
           await _localDb.sincronizarBatch(nuevos);
@@ -180,6 +196,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } catch (e) {
       debugPrint('Sync error: $e');
     }
+
+    if (mounted) setState(() => _sincronizando = false);
   }
 
   Future<void> _cargarCategorias() async {
@@ -457,9 +475,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             onPressed: _mostrarFiltros,
           ),
           IconButton(
-            icon: const Icon(Icons.sync),
+            icon: _sincronizando
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.sync),
             tooltip: 'Sincronizar',
-            onPressed: _sincronizar,
+            onPressed: _sincronizando ? null : _sincronizar,
           ),
           PopupMenuButton<String>(
             onSelected: (value) {
@@ -512,6 +532,57 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   Icon(Icons.wifi_off, color: Colors.white, size: 16),
                   SizedBox(width: 8),
                   Text('Sin conexión — mostrando datos locales', style: TextStyle(color: Colors.white, fontSize: 12)),
+                ],
+              ),
+            ),
+
+          // Banner de progreso de sincronización
+          if (_sincronizando && _syncTotal > 0)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: const Color(0xFF0284C7),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Sincronizando... $_syncDescargados / $_syncTotal',
+                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                      Text(
+                        '${(_syncTotal > 0 ? (_syncDescargados * 100 / _syncTotal).toStringAsFixed(0) : '0')}%',
+                        style: const TextStyle(color: Colors.white70, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: _syncTotal > 0 ? _syncDescargados / _syncTotal : 0,
+                      minHeight: 4,
+                      backgroundColor: Colors.white24,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else if (_sincronizando && _syncTotal == 0)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: const Color(0xFF0284C7),
+              child: const Row(
+                children: [
+                  SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                  SizedBox(width: 10),
+                  Text('Verificando cambios...', style: TextStyle(color: Colors.white, fontSize: 12)),
                 ],
               ),
             ),
