@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:permission_handler/permission_handler.dart';
 import '../models/contacto.dart';
 import '../services/local_database_service.dart';
@@ -40,8 +40,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _cargando = true;
   bool _online = true;
   bool _escuchando = false;
-  bool _vozDisponible = false;
-  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _vozDisponible = true;
+  static const _speechChannel = MethodChannel('guia_telefonica/speech');
   DateTime? _ultimaSync;
   int _filtrosActivos = 0;
   static const _pageSize = 50;
@@ -71,22 +71,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _initVoz() async {
-    // Solo verificar si el permiso ya fue concedido previamente
-    // Si no, se pedirá cuando el usuario toque el botón de voz
-    final status = await Permission.microphone.status;
-    if (status.isGranted) {
-      _vozDisponible = await _speech.initialize(
-        onStatus: (status) {
-          if (status == 'done' || status == 'notListening') {
-            if (mounted) setState(() => _escuchando = false);
-          }
-        },
-        onError: (error) {
-          if (mounted) {
-            setState(() => _escuchando = false);
-          }
-        },
-      );
+    try {
+      final available = await _speechChannel.invokeMethod('isAvailable');
+      _vozDisponible = available == true;
+    } catch (_) {
+      _vozDisponible = false;
     }
   }
 
@@ -268,66 +257,49 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _toggleVoz() async {
-    if (_escuchando) {
-      await _speech.stop();
-      setState(() => _escuchando = false);
-      return;
-    }
-
-    // Pedir permiso de micrófono explícitamente
-    final micStatus = await Permission.microphone.request();
-    if (!micStatus.isGranted) {
+    if (!_vozDisponible) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('⚠️ Permiso de micrófono denegado. Actívalo en ajustes.')),
+          const SnackBar(content: Text('⚠️ Reconocimiento de voz no disponible en este dispositivo')),
         );
       }
       return;
     }
 
-    if (!_vozDisponible) {
-      _vozDisponible = await _speech.initialize(
-        onStatus: (status) {
-          if (status == 'done' || status == 'notListening') {
-            if (mounted) setState(() => _escuchando = false);
-          }
-        },
-        onError: (error) {
-          if (mounted) {
-            setState(() => _escuchando = false);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Error: ${error.errorMsg}')),
-            );
-          }
-        },
-      );
-      if (!_vozDisponible) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('⚠️ Reconocimiento de voz no disponible en este dispositivo')),
-          );
-        }
-        return;
+    // Pedir permiso de micrófono
+    final micStatus = await Permission.microphone.request();
+    if (!micStatus.isGranted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('⚠️ Permiso de micrófono denegado')),
+        );
       }
+      return;
     }
 
     setState(() => _escuchando = true);
 
-    await _speech.listen(
-      localeId: 'es_ES',
-      listenMode: stt.ListenMode.search,
-      cancelOnError: true,
-      listenFor: const Duration(seconds: 10),
-      onResult: (result) {
-        if (mounted) {
-          _searchController.text = result.recognizedWords;
+    try {
+      final result = await _speechChannel.invokeMethod('recognize', {
+        'locale': 'es',
+        'prompt': '🎤 Habla ahora...',
+      });
+
+      if (mounted) {
+        setState(() => _escuchando = false);
+        if (result != null && result.toString().isNotEmpty) {
+          _searchController.text = result.toString();
           _aplicarFiltros();
-          if (result.finalResult) {
-            setState(() => _escuchando = false);
-          }
         }
-      },
-    );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _escuchando = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Error: $e')),
+        );
+      }
+    }
   }
 
   void _mostrarFiltros() {

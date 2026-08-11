@@ -51,9 +51,6 @@ dependencies:
   # QR
   qr_flutter: ^4.1.0
 
-  # Búsqueda por voz
-  speech_to_text: ^6.6.0
-
   # PDF
   pdf: ^3.10.0
 

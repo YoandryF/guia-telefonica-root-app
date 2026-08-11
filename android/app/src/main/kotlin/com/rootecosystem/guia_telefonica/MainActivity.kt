@@ -2,6 +2,7 @@ package com.rootecosystem.guia_telefonica
 
 import android.accounts.Account
 import android.accounts.AccountManager
+import android.app.Activity
 import android.content.ContentProviderOperation
 import android.content.ContentResolver
 import android.content.Intent
@@ -10,15 +11,21 @@ import android.net.Uri
 import android.os.Build
 import android.provider.ContactsContract
 import android.provider.Settings
+import android.speech.RecognizerIntent
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.Locale
 
 class MainActivity : FlutterActivity() {
     private val INSTALLER_CHANNEL = "guia_telefonica/installer"
     private val CONTACTS_CHANNEL = "guia_telefonica/contacts"
+    private val SPEECH_CHANNEL = "guia_telefonica/speech"
+
+    private val SPEECH_REQUEST_CODE = 7777
+    private var speechResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -32,6 +39,23 @@ class MainActivity : FlutterActivity() {
                 }
                 "canInstallApk" -> result.success(canInstallApk())
                 "requestInstallPermission" -> { requestInstallPermission(); result.success(true) }
+                else -> result.notImplemented()
+            }
+        }
+
+        // Canal de reconocimiento de voz (Intent nativo)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SPEECH_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "recognize" -> {
+                    val locale = call.argument<String>("locale") ?: "es"
+                    val prompt = call.argument<String>("prompt") ?: "Habla ahora..."
+                    startSpeechRecognition(locale, prompt, result)
+                }
+                "isAvailable" -> {
+                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                    val available = intent.resolveActivity(packageManager) != null
+                    result.success(available)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -279,5 +303,43 @@ class MainActivity : FlutterActivity() {
             startActivity(intent)
             true
         } catch (e: Exception) { false }
+    }
+
+    // === RECONOCIMIENTO DE VOZ (Intent nativo) ===
+
+    private fun startSpeechRecognition(locale: String, prompt: String, result: MethodChannel.Result) {
+        speechResult = result
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, locale)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        }
+
+        try {
+            startActivityForResult(intent, SPEECH_REQUEST_CODE)
+        } catch (e: Exception) {
+            speechResult = null
+            result.error("SPEECH_NOT_AVAILABLE", "Reconocimiento de voz no disponible: ${e.message}", null)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == SPEECH_REQUEST_CODE) {
+            val pending = speechResult
+            speechResult = null
+
+            if (resultCode == Activity.RESULT_OK && data != null) {
+                val results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                val text = results?.firstOrNull() ?: ""
+                pending?.success(text)
+            } else {
+                // Usuario canceló o no se reconoció nada
+                pending?.success("")
+            }
+        }
     }
 }
