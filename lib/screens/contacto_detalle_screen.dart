@@ -367,6 +367,7 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
 
     // Enviar evidencia a Telegram si hay
     int? evidenciaMsgId;
+    String? evidenciaFileId;
     if (evidencia != null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -383,6 +384,7 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
       );
       if (evResult.success) {
         evidenciaMsgId = evResult.messageId;
+        evidenciaFileId = evResult.fileId;
       }
     }
 
@@ -392,6 +394,7 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
       descripcion: descripcionCtrl.text.isNotEmpty ? descripcionCtrl.text : null,
       telegramUserId: identity.userId,
       evidenciaMsgId: evidenciaMsgId,
+      evidenciaFileId: evidenciaFileId,
     );
 
     if (mounted) {

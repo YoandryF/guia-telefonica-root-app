@@ -289,6 +289,7 @@ class SupabaseService {
     String? dispositivoId,
     String? telegramUserId,
     int? evidenciaMsgId,
+    String? evidenciaFileId,
   }) async {
     try {
       final result = await _client.rpc('insertar_reporte', params: {
@@ -314,6 +315,7 @@ class SupabaseService {
             if (reportes.isNotEmpty) {
               await _client.from('reportes').update({
                 'evidencia_msg_id': evidenciaMsgId,
+                if (evidenciaFileId != null) 'evidencia_file_id': evidenciaFileId,
               }).eq('id', reportes[0]['id']);
             }
           } catch (_) {}

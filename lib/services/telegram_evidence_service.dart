@@ -22,9 +22,10 @@ class EvidenceResult {
   final bool success;
   final int? messageId;
   final String? chatId;
+  final String? fileId;
   final String? error;
 
-  EvidenceResult({required this.success, this.messageId, this.chatId, this.error});
+  EvidenceResult({required this.success, this.messageId, this.chatId, this.fileId, this.error});
 }
 
 /// Servicio para gestionar evidencias de reportes via Telegram
@@ -81,10 +82,16 @@ class TelegramEvidenceService {
 
       if (json['ok'] == true) {
         final msgId = json['result']['message_id'] as int;
+        // Extraer file_id de la foto (la mayor resolución es la última)
+        final photos = json['result']['photo'] as List?;
+        final fileId = photos != null && photos.isNotEmpty
+            ? photos.last['file_id'] as String?
+            : null;
         return EvidenceResult(
           success: true,
           messageId: msgId,
           chatId: chatId,
+          fileId: fileId,
         );
       } else {
         return EvidenceResult(success: false, error: json['description'] ?? 'Error desconocido');
@@ -99,4 +106,24 @@ class TelegramEvidenceService {
   bool get isConfigured =>
       TelegramEvidenceConfig.botToken.isNotEmpty &&
       TelegramEvidenceConfig.evidenceGroupId.isNotEmpty;
+
+  /// Obtener URL descargable de una evidencia por su file_id
+  Future<String?> getEvidenciaUrl(String fileId) async {
+    final token = TelegramEvidenceConfig.botToken;
+    if (token.isEmpty) return null;
+
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.telegram.org/bot$token/getFile?file_id=$fileId'),
+      );
+      final json = jsonDecode(response.body);
+      if (json['ok'] == true) {
+        final filePath = json['result']['file_path'] as String;
+        return 'https://api.telegram.org/file/bot$token/$filePath';
+      }
+    } catch (e) {
+      debugPrint('Error obteniendo URL evidencia: $e');
+    }
+    return null;
+  }
 }

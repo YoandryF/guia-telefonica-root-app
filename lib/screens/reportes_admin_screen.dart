@@ -205,25 +205,84 @@ class _ReportesContactoScreenState extends State<_ReportesContactoScreen> {
     _cargar();
   }
 
-  Future<void> _abrirEvidencia(dynamic msgId) async {
-    // Abrir el grupo de evidencias en Telegram
-    // El admin puede buscar el mensaje por ID en el grupo
-    final chatId = TelegramEvidenceConfig.evidenceGroupId;
-    if (chatId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('⚠️ Grupo de evidencias no configurado')),
+  Future<void> _abrirEvidencia(dynamic msgId, String? fileId) async {
+    if (fileId != null && fileId.toString().isNotEmpty) {
+      // Mostrar imagen inline
+      showDialog(
+        context: context,
+        builder: (ctx) => Dialog(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppBar(
+                title: const Text('📎 Evidencia'),
+                automaticallyImplyLeading: false,
+                actions: [
+                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                ],
+              ),
+              FutureBuilder<String?>(
+                future: TelegramEvidenceService().getEvidenciaUrl(fileId.toString()),
+                builder: (ctx, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const SizedBox(
+                      height: 300,
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  if (snapshot.data == null) {
+                    return const SizedBox(
+                      height: 200,
+                      child: Center(child: Text('❌ No se pudo cargar la imagen')),
+                    );
+                  }
+                  return InteractiveViewer(
+                    child: Image.network(
+                      snapshot.data!,
+                      fit: BoxFit.contain,
+                      loadingBuilder: (ctx, child, progress) {
+                        if (progress == null) return child;
+                        return SizedBox(
+                          height: 300,
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              value: progress.expectedTotalBytes != null
+                                  ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                                  : null,
+                            ),
+                          ),
+                        );
+                      },
+                      errorBuilder: (ctx, _, __) => const SizedBox(
+                        height: 200,
+                        child: Center(child: Text('❌ Error cargando imagen')),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
       );
-      return;
-    }
-    // Intentar abrir el grupo de Telegram
-    final uri = Uri.parse('https://t.me/c/${chatId.replaceFirst('-100', '')}/$msgId');
-    try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (_) {
-      if (mounted) {
+    } else {
+      // Fallback: abrir en Telegram
+      final chatId = TelegramEvidenceConfig.evidenceGroupId;
+      if (chatId.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('📎 Evidencia: mensaje #$msgId en el grupo de evidencias')),
+          const SnackBar(content: Text('⚠️ Grupo de evidencias no configurado')),
         );
+        return;
+      }
+      final uri = Uri.parse('https://t.me/c/${chatId.replaceFirst('-100', '')}/$msgId');
+      try {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('📎 Evidencia: mensaje #$msgId en el grupo')),
+          );
+        }
       }
     }
   }
@@ -277,7 +336,7 @@ class _ReportesContactoScreenState extends State<_ReportesContactoScreen> {
                               Padding(
                                 padding: const EdgeInsets.only(top: 6),
                                 child: InkWell(
-                                  onTap: () => _abrirEvidencia(r['evidencia_msg_id']),
+                                  onTap: () => _abrirEvidencia(r['evidencia_msg_id'], r['evidencia_file_id']),
                                   child: const Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
