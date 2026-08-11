@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/contacto.dart';
+import 'sanitizer.dart';
 
 class SupabaseService {
   final SupabaseClient _client = Supabase.instance.client;
@@ -90,19 +91,19 @@ class SupabaseService {
   }) async {
     try {
       final data = <String, dynamic>{
-        'nombre': nombre,
-        'apellido': apellido,
-        'telefono': telefono,
-        'direccion': direccion,
-        'ci': ci,
+        'nombre': Sanitizer.texto(nombre),
+        'apellido': Sanitizer.texto(apellido),
+        'telefono': Sanitizer.telefono(telefono),
+        'direccion': direccion != null ? Sanitizer.texto(direccion) : null,
+        'ci': ci != null ? Sanitizer.ci(ci) : null,
         'categoria_id': categoriaId,
         'estado': 'pendiente',
         'creado_desde': 'app',
         'dispositivo_id': dispositivoId,
       };
-      if (provincia != null) data['provincia'] = provincia;
-      if (municipio != null) data['municipio'] = municipio;
-      if (pais != null) data['pais'] = pais;
+      if (provincia != null) data['provincia'] = Sanitizer.texto(provincia);
+      if (municipio != null) data['municipio'] = Sanitizer.texto(municipio);
+      if (pais != null) data['pais'] = Sanitizer.texto(pais);
 
       final response = await _client.from('contactos').insert(data).select();
 

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'sanitizer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ImportResult {
@@ -73,7 +74,7 @@ class ImportService {
 
     for (var i = desdeChunk; i < chunks.length; i++) {
       final chunk = chunks[i];
-      final batch = chunk.where((c) =>
+      final batch = chunk.map((c) => Sanitizer.contacto(c)).where((c) =>
         (c['nombre'] ?? '').length >= 2 &&
         (c['apellido'] ?? '').length >= 2 &&
         (c['telefono'] ?? '').length >= 5
