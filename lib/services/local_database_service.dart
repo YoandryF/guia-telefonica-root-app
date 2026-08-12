@@ -17,7 +17,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 6,
+      version: 7,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -61,6 +61,49 @@ class LocalDatabaseService {
       await db.execute('ALTER TABLE contactos_aprobados ADD COLUMN municipio TEXT');
       await db.execute('CREATE INDEX IF NOT EXISTS idx_ca_provincia ON contactos_aprobados(provincia)');
       await db.execute('CREATE INDEX IF NOT EXISTS idx_ca_municipio ON contactos_aprobados(municipio)');
+    }
+    if (oldVersion < 7) {
+      // FTS5 para búsqueda ultrarrápida en 25k registros
+      await db.execute('''
+        CREATE VIRTUAL TABLE IF NOT EXISTS contactos_fts USING fts5(
+          id UNINDEXED,
+          nombre,
+          apellido,
+          telefono,
+          ci,
+          provincia,
+          municipio,
+          content=contactos_aprobados,
+          content_rowid=rowid
+        )
+      ''');
+      // Poblar FTS5 con datos existentes
+      await db.execute('''
+        INSERT INTO contactos_fts(rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
+        SELECT rowid, id, nombre, apellido, telefono, ci, provincia, municipio
+        FROM contactos_aprobados
+      ''');
+      // Triggers para mantener FTS5 actualizado
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS ca_ai AFTER INSERT ON contactos_aprobados BEGIN
+          INSERT INTO contactos_fts(rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
+          VALUES (new.rowid, new.id, new.nombre, new.apellido, new.telefono, new.ci, new.provincia, new.municipio);
+        END
+      ''');
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS ca_ad AFTER DELETE ON contactos_aprobados BEGIN
+          INSERT INTO contactos_fts(contactos_fts, rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
+          VALUES ('delete', old.rowid, old.id, old.nombre, old.apellido, old.telefono, old.ci, old.provincia, old.municipio);
+        END
+      ''');
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS ca_au AFTER UPDATE ON contactos_aprobados BEGIN
+          INSERT INTO contactos_fts(contactos_fts, rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
+          VALUES ('delete', old.rowid, old.id, old.nombre, old.apellido, old.telefono, old.ci, old.provincia, old.municipio);
+          INSERT INTO contactos_fts(rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
+          VALUES (new.rowid, new.id, new.nombre, new.apellido, new.telefono, new.ci, new.provincia, new.municipio);
+        END
+      ''');
     }
   }
 
@@ -108,6 +151,34 @@ class LocalDatabaseService {
     await db.execute('CREATE INDEX idx_ca_provincia ON contactos_aprobados(provincia)');
     await db.execute('CREATE INDEX idx_ca_municipio ON contactos_aprobados(municipio)');
 
+    // FTS5 para búsqueda ultrarrápida
+    await db.execute('''
+      CREATE VIRTUAL TABLE IF NOT EXISTS contactos_fts USING fts5(
+        id UNINDEXED, nombre, apellido, telefono, ci, provincia, municipio,
+        content=contactos_aprobados, content_rowid=rowid
+      )
+    ''');
+    await db.execute('''
+      CREATE TRIGGER IF NOT EXISTS ca_ai AFTER INSERT ON contactos_aprobados BEGIN
+        INSERT INTO contactos_fts(rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
+        VALUES (new.rowid, new.id, new.nombre, new.apellido, new.telefono, new.ci, new.provincia, new.municipio);
+      END
+    ''');
+    await db.execute('''
+      CREATE TRIGGER IF NOT EXISTS ca_ad AFTER DELETE ON contactos_aprobados BEGIN
+        INSERT INTO contactos_fts(contactos_fts, rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
+        VALUES ('delete', old.rowid, old.id, old.nombre, old.apellido, old.telefono, old.ci, old.provincia, old.municipio);
+      END
+    ''');
+    await db.execute('''
+      CREATE TRIGGER IF NOT EXISTS ca_au AFTER UPDATE ON contactos_aprobados BEGIN
+        INSERT INTO contactos_fts(contactos_fts, rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
+        VALUES ('delete', old.rowid, old.id, old.nombre, old.apellido, old.telefono, old.ci, old.provincia, old.municipio);
+        INSERT INTO contactos_fts(rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
+        VALUES (new.rowid, new.id, new.nombre, new.apellido, new.telefono, new.ci, new.provincia, new.municipio);
+      END
+    ''');
+
     await db.execute('''
       CREATE TABLE recientes (
         contacto_id TEXT PRIMARY KEY,
@@ -126,9 +197,76 @@ class LocalDatabaseService {
 
   // === CONTACTOS ===
 
+  /// Carga todos los contactos — usar solo cuando realmente se necesitan todos
+  /// (sync, escanear agenda, etc). Para la UI usar getContactosPaginados.
   Future<List<Contacto>> getAllContactos() async {
     final db = await database;
     final maps = await db.query('contactos_aprobados', orderBy: 'nombre ASC');
+    return maps.map((m) => Contacto.fromJson(m)).toList();
+  }
+
+  /// Cuenta total de contactos sin cargarlos en memoria
+  Future<int> countContactos({String? categoriaId, String? provincia, String? municipio, bool soloReportados = false}) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <dynamic>[];
+    if (categoriaId != null) { where.add('categoria_id = ?'); args.add(categoriaId); }
+    if (provincia != null) { where.add('provincia = ?'); args.add(provincia); }
+    if (municipio != null) { where.add('municipio = ?'); args.add(municipio); }
+    if (soloReportados) { where.add('tiene_reportes = 1'); }
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as c FROM contactos_aprobados${where.isNotEmpty ? ' WHERE ${where.join(' AND ')}' : ''}',
+      args,
+    );
+    return (result.first['c'] as int?) ?? 0;
+  }
+
+  /// Paginación SQL — no carga 25k en memoria, solo la página solicitada
+  Future<List<Contacto>> getContactosPaginados({
+    int offset = 0,
+    int limit = 50,
+    String? categoriaId,
+    String? provincia,
+    String? municipio,
+    bool soloReportados = false,
+  }) async {
+    final db = await database;
+    final where = <String>[];
+    final args = <dynamic>[];
+    if (categoriaId != null) { where.add('categoria_id = ?'); args.add(categoriaId); }
+    if (provincia != null) { where.add('provincia = ?'); args.add(provincia); }
+    if (municipio != null) { where.add('municipio = ?'); args.add(municipio); }
+    if (soloReportados) { where.add('tiene_reportes = 1'); }
+    args.addAll([limit, offset]);
+    final maps = await db.rawQuery(
+      'SELECT * FROM contactos_aprobados${where.isNotEmpty ? ' WHERE ${where.join(' AND ')}' : ''} ORDER BY nombre ASC LIMIT ? OFFSET ?',
+      args,
+    );
+    return maps.map((m) => Contacto.fromJson(m)).toList();
+  }
+
+  /// Búsqueda paginada — usa FTS5 si disponible, fallback LIKE
+  Future<List<Contacto>> buscarContactosPaginados(String query, {int offset = 0, int limit = 50}) async {
+    final db = await database;
+    // Intentar FTS5 primero
+    try {
+      final maps = await db.rawQuery(
+        '''SELECT ca.* FROM contactos_aprobados ca
+           JOIN contactos_fts fts ON ca.id = fts.id
+           WHERE contactos_fts MATCH ?
+           ORDER BY rank LIMIT ? OFFSET ?''',
+        ['$query*', limit, offset],
+      );
+      if (maps.isNotEmpty) return maps.map((m) => Contacto.fromJson(m)).toList();
+    } catch (_) {}
+
+    // Fallback LIKE
+    final maps = await db.rawQuery(
+      '''SELECT * FROM contactos_aprobados
+         WHERE nombre LIKE ? OR apellido LIKE ? OR telefono LIKE ? OR ci LIKE ?
+         ORDER BY nombre ASC LIMIT ? OFFSET ?''',
+      ['%$query%', '%$query%', '%$query%', '%$query%', limit, offset],
+    );
     return maps.map((m) => Contacto.fromJson(m)).toList();
   }
 
@@ -191,30 +329,35 @@ class LocalDatabaseService {
 
   Future<void> sincronizarBatch(List<Contacto> contactos) async {
     final db = await database;
-    final batch = db.batch();
-    for (final contacto in contactos) {
-      batch.insert(
-        'contactos_aprobados',
-        {
-          'id': contacto.id,
-          'nombre': contacto.nombre,
-          'apellido': contacto.apellido,
-          'telefono': contacto.telefono,
-          'direccion': contacto.direccion,
-          'ci': contacto.ci,
-          'categoria_id': contacto.categoriaId,
-          'categoria_nombre': contacto.categoriaNombre,
-          'categoria_icono': contacto.categoriaIcono,
-          'fecha_creacion': contacto.fechaCreacion?.toIso8601String(),
-          'fecha_aprobacion': contacto.fechaAprobacion?.toIso8601String(),
-          'pais': contacto.pais,
-          'provincia': contacto.provincia,
-          'municipio': contacto.municipio,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+    const chunkSize = 500;
+    // Procesar en chunks para no saturar memoria en gama baja
+    for (var i = 0; i < contactos.length; i += chunkSize) {
+      final chunk = contactos.sublist(i, i + chunkSize > contactos.length ? contactos.length : i + chunkSize);
+      final batch = db.batch();
+      for (final contacto in chunk) {
+        batch.insert(
+          'contactos_aprobados',
+          {
+            'id': contacto.id,
+            'nombre': contacto.nombre,
+            'apellido': contacto.apellido,
+            'telefono': contacto.telefono,
+            'direccion': contacto.direccion,
+            'ci': contacto.ci,
+            'categoria_id': contacto.categoriaId,
+            'categoria_nombre': contacto.categoriaNombre,
+            'categoria_icono': contacto.categoriaIcono,
+            'fecha_creacion': contacto.fechaCreacion?.toIso8601String(),
+            'fecha_aprobacion': contacto.fechaAprobacion?.toIso8601String(),
+            'pais': contacto.pais,
+            'provincia': contacto.provincia,
+            'municipio': contacto.municipio,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
     }
-    await batch.commit(noResult: true);
   }
 
   Future<void> eliminarContacto(String id) async {

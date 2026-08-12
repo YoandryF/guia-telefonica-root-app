@@ -13,14 +13,19 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 2), () async {
-      if (!mounted) return;
-      final prefs = await SharedPreferences.getInstance();
-      final visto = prefs.getBool('onboarding_visto') ?? false;
-      if (mounted) {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => visto ? const HomeScreen() : const OnboardingScreen()));
-      }
-    });
+    _iniciar();
+  }
+
+  Future<void> _iniciar() async {
+    // Esperar inicialización en paralelo (sin timer fijo)
+    final prefs = await SharedPreferences.getInstance();
+    final visto = prefs.getBool('onboarding_visto') ?? false;
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => visto ? const HomeScreen() : const OnboardingScreen()),
+      );
+    }
   }
 
   @override

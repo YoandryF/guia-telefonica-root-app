@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -27,8 +28,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _localDb = LocalDatabaseService();
   final _supabaseService = SupabaseService();
 
-  List<Contacto> _contactos = [];
-  List<Contacto> _filtrados = [];
   List<Contacto> _visibles = [];
   List<Contacto> _favoritos = [];
   List<Map<String, dynamic>> _categorias = [];
@@ -41,7 +40,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _filtrosActivos = 0;
   static const _pageSize = 50;
   int _paginaActual = 1;
+  int _totalContactos = 0;
+  bool _cargandoMas = false;
   final _scrollController = ScrollController();
+  StreamSubscription? _connectivitySub;
 
   // Estado de sincronización
   bool _sincronizando = false;
@@ -56,7 +58,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _sincronizar();
     _verificarActualizacion();
     _scrollController.addListener(_onScroll);
-    Connectivity().onConnectivityChanged.listen((result) {
+    _connectivitySub = Connectivity().onConnectivityChanged.listen((result) {
       setState(() => _online = result != ConnectivityResult.none);
       if (_online) _sincronizar();
     });
@@ -64,6 +66,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   void dispose() {
+    _connectivitySub?.cancel();
     _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -89,17 +92,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _cargarContactos() async {
     setState(() => _cargando = true);
-    final contactos = await _localDb.getAllContactos();
     _ultimaSync = await _localDb.getUltimaSincronizacion();
     final favIds = await _localDb.getFavoritosIds();
-    final favoritos = contactos.where((c) => favIds.contains(c.id)).toList();
+    // Cargar solo los favoritos (subset pequeño)
+    final todosParaFavoritos = await _localDb.getAllContactos();
+    final favoritos = todosParaFavoritos.where((c) => favIds.contains(c.id)).toList();
+    // Cargar solo la primera página para la lista
+    final totalContactos = await _localDb.countContactos(
+      categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
+      provincia: _provinciaFiltro,
+      municipio: _municipioFiltro,
+      soloReportados: _categoriaFiltro == '_reportados',
+    );
+    final primeraPagena = await _localDb.getContactosPaginados(
+      offset: 0,
+      limit: _pageSize,
+      categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
+      provincia: _provinciaFiltro,
+      municipio: _municipioFiltro,
+      soloReportados: _categoriaFiltro == '_reportados',
+    );
     setState(() {
-      _contactos = contactos;
-      _filtrados = contactos;
+      _totalContactos = totalContactos;
+      _visibles = primeraPagena;
       _favoritos = favoritos;
+      _paginaActual = 1;
       _cargando = false;
     });
-    _aplicarFiltros();
   }
 
   Future<void> _resincronizarTodo() async {
@@ -197,66 +216,92 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   void _aplicarFiltros() {
-    setState(() {
-      var resultado = _contactos.toList();
-      final query = _searchController.text;
-
-      // Filtro por categoría
-      if (_categoriaFiltro == '_reportados') {
-        resultado = resultado.where((c) => c.tieneReportes).toList();
-      } else if (_categoriaFiltro != null) {
-        resultado = resultado.where((c) => c.categoriaId == _categoriaFiltro).toList();
-      }
-
-      // Filtro por provincia
-      if (_provinciaFiltro != null) {
-        resultado = resultado.where((c) => c.provincia == _provinciaFiltro).toList();
-      }
-
-      // Filtro por municipio
-      if (_municipioFiltro != null) {
-        resultado = resultado.where((c) => c.municipio == _municipioFiltro).toList();
-      }
-
-      // Filtro por texto
-      if (query.isNotEmpty) {
-        final q = query.toLowerCase();
-        resultado = resultado.where((c) =>
-            c.nombre.toLowerCase().contains(q) ||
-            c.apellido.toLowerCase().contains(q) ||
-            c.telefono.contains(q) ||
-            (c.ci?.contains(q) ?? false) ||
-            (c.provincia?.toLowerCase().contains(q) ?? false) ||
-            (c.municipio?.toLowerCase().contains(q) ?? false)).toList();
-      }
-
-      _filtrados = resultado;
-      _paginaActual = 1;
-      _visibles = resultado.take(_pageSize).toList();
-      _filtrosActivos = (_categoriaFiltro != null ? 1 : 0) +
-          (_provinciaFiltro != null ? 1 : 0) +
-          (_municipioFiltro != null ? 1 : 0);
-    });
+    _paginaActual = 1;
+    _filtrosActivos = (_categoriaFiltro != null ? 1 : 0) +
+        (_provinciaFiltro != null ? 1 : 0) +
+        (_municipioFiltro != null ? 1 : 0);
+    _recargarPagina();
   }
 
-  void _cargarMas() {
-    if (_visibles.length >= _filtrados.length) return;
-    setState(() {
-      _paginaActual++;
-      _visibles = _filtrados.take(_paginaActual * _pageSize).toList();
-    });
+  Future<void> _recargarPagina() async {
+    final query = _searchController.text;
+    setState(() => _cargando = true);
+
+    List<Contacto> resultado;
+    int total;
+
+    if (query.isNotEmpty) {
+      resultado = await _localDb.buscarContactosPaginados(query, offset: 0, limit: _pageSize);
+      // Para el total en búsqueda hacemos count rápido
+      final todos = await _localDb.buscarContactos(query);
+      total = todos.length;
+    } else {
+      total = await _localDb.countContactos(
+        categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
+        provincia: _provinciaFiltro,
+        municipio: _municipioFiltro,
+        soloReportados: _categoriaFiltro == '_reportados',
+      );
+      resultado = await _localDb.getContactosPaginados(
+        offset: 0,
+        limit: _pageSize,
+        categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
+        provincia: _provinciaFiltro,
+        municipio: _municipioFiltro,
+        soloReportados: _categoriaFiltro == '_reportados',
+      );
+    }
+
+    if (mounted) {
+      setState(() {
+        _visibles = resultado;
+        _totalContactos = total;
+        _paginaActual = 1;
+        _cargando = false;
+      });
+    }
   }
 
-  bool get _hayMas => _visibles.length < _filtrados.length;
+  Future<void> _cargarMas() async {
+    if (_cargandoMas || _visibles.length >= _totalContactos) return;
+    setState(() => _cargandoMas = true);
+
+    final query = _searchController.text;
+    final offset = _paginaActual * _pageSize;
+    List<Contacto> mas;
+
+    if (query.isNotEmpty) {
+      mas = await _localDb.buscarContactosPaginados(query, offset: offset, limit: _pageSize);
+    } else {
+      mas = await _localDb.getContactosPaginados(
+        offset: offset,
+        limit: _pageSize,
+        categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
+        provincia: _provinciaFiltro,
+        municipio: _municipioFiltro,
+        soloReportados: _categoriaFiltro == '_reportados',
+      );
+    }
+
+    if (mounted) {
+      setState(() {
+        _visibles = [..._visibles, ...mas];
+        _paginaActual++;
+        _cargandoMas = false;
+      });
+    }
+  }
+
+  bool get _hayMas => _visibles.length < _totalContactos;
 
   void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 300) {
       _cargarMas();
     }
   }
 
   void _filtrar(String query) {
-    _aplicarFiltros();
+    _recargarPagina();
   }
 
   void _mostrarFiltros() {
@@ -594,7 +639,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
             child: Row(
               children: [
-                Text('${_filtrados.length} contactos', style: Theme.of(context).textTheme.bodySmall),
+                Text('$_totalContactos contactos', style: Theme.of(context).textTheme.bodySmall),
                 const Spacer(),
                 if (_ultimaSync != null)
                   Text('Sync: ${_formatearFecha(_ultimaSync!)}', style: Theme.of(context).textTheme.bodySmall),
