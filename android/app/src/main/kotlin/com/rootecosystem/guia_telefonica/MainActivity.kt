@@ -340,49 +340,75 @@ class MainActivity : FlutterActivity() {
         val contacts = mutableListOf<Map<String, String>>()
         val cr = contentResolver
 
-        // Buscar raw contacts de nuestra cuenta
+        // Query directa: obtener nombre y teléfono de contactos de nuestra cuenta
+        // usando Data table filtrada por account_type via raw_contact_id
+        val rawIds = mutableListOf<Long>()
         val rawCursor = cr.query(
             ContactsContract.RawContacts.CONTENT_URI,
             arrayOf(ContactsContract.RawContacts._ID),
-            "${ContactsContract.RawContacts.ACCOUNT_TYPE} = ?",
+            "${ContactsContract.RawContacts.ACCOUNT_TYPE} = ? AND ${ContactsContract.RawContacts.DELETED} = 0",
             arrayOf("com.rootecosystem.guia_telefonica"),
             null
         )
-
         rawCursor?.use {
             val idIdx = it.getColumnIndex(ContactsContract.RawContacts._ID)
             while (it.moveToNext()) {
-                val rawId = it.getLong(idIdx)
+                rawIds.add(it.getLong(idIdx))
+            }
+        }
 
-                // Obtener nombre
-                var name = ""
-                val nameCursor = cr.query(
-                    ContactsContract.Data.CONTENT_URI,
-                    arrayOf(ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME),
-                    "${ContactsContract.Data.RAW_CONTACT_ID} = ? AND ${ContactsContract.Data.MIMETYPE} = ?",
-                    arrayOf(rawId.toString(), ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE),
-                    null
-                )
-                nameCursor?.use { nc ->
-                    if (nc.moveToFirst()) name = nc.getString(0) ?: ""
-                }
+        if (rawIds.isEmpty()) return contacts
 
-                // Obtener teléfono
-                var phone = ""
-                val phoneCursor = cr.query(
-                    ContactsContract.Data.CONTENT_URI,
-                    arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
-                    "${ContactsContract.Data.RAW_CONTACT_ID} = ? AND ${ContactsContract.Data.MIMETYPE} = ?",
-                    arrayOf(rawId.toString(), ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE),
-                    null
-                )
-                phoneCursor?.use { pc ->
-                    if (pc.moveToFirst()) phone = pc.getString(0) ?: ""
-                }
+        // Obtener todos los datos de una sola vez (batch query)
+        // Procesamos en chunks de 100 para no exceder límite de SQL
+        val namesMap = mutableMapOf<Long, String>()
+        val phonesMap = mutableMapOf<Long, String>()
 
-                if (phone.isNotEmpty()) {
-                    contacts.add(mapOf("name" to name, "phone" to phone))
+        for (chunk in rawIds.chunked(100)) {
+            val placeholders = chunk.joinToString(",") { "?" }
+            val args = chunk.map { it.toString() }.toTypedArray()
+
+            // Nombres
+            val nameCursor = cr.query(
+                ContactsContract.Data.CONTENT_URI,
+                arrayOf(ContactsContract.Data.RAW_CONTACT_ID, ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME),
+                "${ContactsContract.Data.RAW_CONTACT_ID} IN ($placeholders) AND ${ContactsContract.Data.MIMETYPE} = ?",
+                args + ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE,
+                null
+            )
+            nameCursor?.use { nc ->
+                val ridIdx = nc.getColumnIndex(ContactsContract.Data.RAW_CONTACT_ID)
+                val nameIdx = nc.getColumnIndex(ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME)
+                while (nc.moveToNext()) {
+                    namesMap[nc.getLong(ridIdx)] = nc.getString(nameIdx) ?: ""
                 }
+            }
+
+            // Teléfonos
+            val phoneCursor = cr.query(
+                ContactsContract.Data.CONTENT_URI,
+                arrayOf(ContactsContract.Data.RAW_CONTACT_ID, ContactsContract.CommonDataKinds.Phone.NUMBER),
+                "${ContactsContract.Data.RAW_CONTACT_ID} IN ($placeholders) AND ${ContactsContract.Data.MIMETYPE} = ?",
+                args + ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
+                null
+            )
+            phoneCursor?.use { pc ->
+                val ridIdx = pc.getColumnIndex(ContactsContract.Data.RAW_CONTACT_ID)
+                val phoneIdx = pc.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                while (pc.moveToNext()) {
+                    phonesMap[pc.getLong(ridIdx)] = pc.getString(phoneIdx) ?: ""
+                }
+            }
+        }
+
+        // Combinar
+        for (rawId in rawIds) {
+            val phone = phonesMap[rawId] ?: ""
+            if (phone.isNotEmpty()) {
+                contacts.add(mapOf(
+                    "name" to (namesMap[rawId] ?: ""),
+                    "phone" to phone
+                ))
             }
         }
 

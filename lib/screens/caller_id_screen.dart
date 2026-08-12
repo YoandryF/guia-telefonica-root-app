@@ -61,9 +61,14 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
     try {
       // Obtener contactos de nuestra cuenta en la agenda
       final result = await _channel.invokeMethod('getGuiaContactsInAgenda');
-      final enAgenda = List<Map<dynamic, dynamic>>.from(result)
-          .map((m) => {'name': m['name']?.toString() ?? '', 'phone': m['phone']?.toString() ?? ''})
-          .toList();
+      final List<Map<String, String>> enAgenda;
+      if (result == null) {
+        enAgenda = [];
+      } else {
+        enAgenda = List<Map<dynamic, dynamic>>.from(result)
+            .map((m) => {'name': m['name']?.toString() ?? '', 'phone': m['phone']?.toString() ?? ''})
+            .toList();
+      }
 
       // Obtener todos los contactos de la BD local
       final todos = await _localDb.getAllContactos();
