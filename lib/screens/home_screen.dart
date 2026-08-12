@@ -98,8 +98,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final favoritos = favIds.isNotEmpty
           ? await _localDb.getContactosPorIds(favIds)
           : <Contacto>[];
-      final totalContactos = await _localDb.countContactos();
-      final primeraPagena = await _localDb.getContactosPaginados(offset: 0, limit: _pageSize);
+      // Respetar filtros activos al recargar
+      final totalContactos = await _localDb.countContactos(
+        categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
+        provincia: _provinciaFiltro,
+        municipio: _municipioFiltro,
+        soloReportados: _categoriaFiltro == '_reportados',
+      );
+      final primeraPagena = await _localDb.getContactosPaginados(
+        offset: 0,
+        limit: _pageSize,
+        categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
+        provincia: _provinciaFiltro,
+        municipio: _municipioFiltro,
+        soloReportados: _categoriaFiltro == '_reportados',
+      );
       if (mounted) {
         setState(() {
           _totalContactos = totalContactos;
@@ -129,7 +142,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         await _localDb.sincronizarBatch(todos);
       }
       await _localDb.guardarUltimaSincronizacion(DateTime.now());
-      await _cargarContactos();
+      await _recargarPagina();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('✅ Sincronización completa: ${todos.length} contactos')),
@@ -190,7 +203,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         }
         await _localDb.actualizarReportes(reportesMap);
       } catch (_) {}
-      await _cargarContactos();
+      await _recargarPagina();
     } catch (e) {
       debugPrint('Sync error: $e');
     }
