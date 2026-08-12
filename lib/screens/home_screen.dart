@@ -162,7 +162,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     try {
       final ultimaSync = await _localDb.getUltimaSincronizacion();
       final totalRemoto = await _supabaseService.contarContactosAprobados();
-      final totalLocal = _contactos.length;
+      final totalLocal = await _localDb.countContactos();
 
       final desfase = totalRemoto - totalLocal;
       if (desfase > 50 || ultimaSync == null) {
@@ -695,7 +695,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           Expanded(
             child: _cargando
                 ? const Center(child: CircularProgressIndicator())
-                : _filtrados.isEmpty
+                : _visibles.isEmpty
                     ? const Center(child: Text('No se encontraron contactos'))
                     : RefreshIndicator(
                         onRefresh: _sincronizar,
