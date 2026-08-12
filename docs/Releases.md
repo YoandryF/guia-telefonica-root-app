@@ -2,7 +2,11 @@
 
 | Versión | Fecha | Cambios principales |
 |---|---|---|
-| v3.6.0 | 2026-08-11 | Evidencias en reportes (foto via Telegram), visor inline con zoom, limpieza auto 30 días, fix eliminar agenda, categorías con paleta colores/íconos |
+| v3.7.2 | 2026-08-12 | Fix crash identificador de llamadas (batch query en vez de N+1) |
+| v3.7.1 | 2026-08-12 | Rediseño sync agenda: muestra contactos en agenda, progreso real al eliminar, conteo correcto |
+| v3.7.0 | 2026-08-12 | Launcher icon mejorado, sanitizer caracteres, escanear con progreso y conteo correcto, eliminar con indicador batch, removida voz |
+| v3.6.1 | 2026-08-11 | Fix eliminar contactos agenda O(1) batch, inteligencia anti-abuso en reportes |
+| v3.6.0 | 2026-08-11 | Evidencias en reportes (foto via Telegram), visor inline con zoom, limpieza auto 30 días |
 | v3.5.1 | 2026-08-11 | Fix eliminar de agenda (removeContact nativo), categorías con paleta visual colores e íconos |
 | v3.5.0 | 2026-08-11 | Voz con Intent nativo Google, scroll infinito, sync detecta desfase (25k+), banner progreso sync, ícono animado AppBar |
 | v3.4.0 | 2026-08-10 | Verificación Telegram para reportar/avalar/reclamar, fix búsqueda por voz, import distingue nuevos vs actualizados, sync agenda con progreso + selección individual |
