@@ -430,7 +430,7 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: LinearProgressIndicator(
-              value: p?.progreso ?? 0,
+              value: p != null && p.total > 0 ? p.progreso : null,
               minHeight: 14,
               backgroundColor: Colors.grey[200],
               color: eliminando ? Colors.red : null,
@@ -439,10 +439,16 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
           const SizedBox(height: 12),
 
           // Porcentaje y conteo
-          Text(
-            '${((p?.progreso ?? 0) * 100).toStringAsFixed(0)}%  —  ${p?.procesados ?? 0} / ${p?.total ?? 0}',
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-          ),
+          if (p != null && p.total > 0)
+            Text(
+              '${(p.progreso * 100).toStringAsFixed(0)}%  —  ${p.procesados} / ${p.total}',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+            )
+          else
+            Text(
+              eliminando ? 'Procesando eliminación...' : 'Procesando...',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+            ),
           const SizedBox(height: 8),
 
           // Contacto actual

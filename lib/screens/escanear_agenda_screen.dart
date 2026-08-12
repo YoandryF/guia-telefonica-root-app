@@ -18,7 +18,9 @@ class _EscanearAgendaScreenState extends State<EscanearAgendaScreen> {
   bool _escaneando = false;
   List<Map<String, dynamic>> _riesgosos = [];
   int _totalEscaneados = 0;
+  int _procesados = 0;
   bool _escaneado = false;
+  String _statusMsg = '';
 
   Future<void> _escanear() async {
     final status = await Permission.contacts.request();
@@ -31,12 +33,17 @@ class _EscanearAgendaScreenState extends State<EscanearAgendaScreen> {
       return;
     }
 
-    setState(() { _escaneando = true; _riesgosos = []; _escaneado = false; });
+    setState(() { _escaneando = true; _riesgosos = []; _escaneado = false; _procesados = 0; _statusMsg = 'Leyendo agenda...'; });
 
     try {
       // Leer teléfonos de la agenda
       final result = await _channel.invokeMethod('getPhoneContacts');
       final agendaContactos = List<Map<dynamic, dynamic>>.from(result);
+
+      setState(() {
+        _totalEscaneados = agendaContactos.length;
+        _statusMsg = 'Cargando base de datos local...';
+      });
 
       // Obtener teléfonos reportados de nuestra BD local
       final reportados = await _localDb.getTelefonosReportados();
@@ -45,12 +52,14 @@ class _EscanearAgendaScreenState extends State<EscanearAgendaScreen> {
       // Normalizar para comparar
       final reportadosNorm = reportados.map(_normalizar).toSet();
 
-      // Comparar
+      setState(() => _statusMsg = 'Comparando ${agendaContactos.length} contactos...');
+
+      // Comparar con progreso
       final encontrados = <Map<String, dynamic>>[];
-      for (final contacto in agendaContactos) {
+      for (var i = 0; i < agendaContactos.length; i++) {
+        final contacto = agendaContactos[i];
         final tel = _normalizar(contacto['phone']?.toString() ?? '');
         if (tel.isNotEmpty && reportadosNorm.contains(tel)) {
-          // Buscar contacto local correspondiente
           final local = todos.where((c) => _normalizar(c.telefono) == tel).toList();
           encontrados.add({
             'nombre': contacto['name']?.toString() ?? 'Desconocido',
@@ -58,16 +67,20 @@ class _EscanearAgendaScreenState extends State<EscanearAgendaScreen> {
             'contacto_local': local.isNotEmpty ? local.first : null,
           });
         }
+
+        // Actualizar progreso cada 50
+        if (i % 50 == 0 || i == agendaContactos.length - 1) {
+          setState(() => _procesados = i + 1);
+        }
       }
 
       setState(() {
         _riesgosos = encontrados;
-        _totalEscaneados = agendaContactos.length;
         _escaneando = false;
         _escaneado = true;
       });
     } catch (e) {
-      setState(() => _escaneando = false);
+      setState(() { _escaneando = false; _statusMsg = ''; });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
@@ -115,6 +128,25 @@ class _EscanearAgendaScreenState extends State<EscanearAgendaScreen> {
                   : const Icon(Icons.search),
               label: Text(_escaneando ? 'Escaneando...' : 'ESCANEAR MI AGENDA'),
             ),
+
+            if (_escaneando) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: LinearProgressIndicator(
+                  value: _totalEscaneados > 0 ? _procesados / _totalEscaneados : null,
+                  minHeight: 8,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _totalEscaneados > 0
+                    ? '$_procesados / $_totalEscaneados — $_statusMsg'
+                    : _statusMsg,
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+            ],
 
             if (_escaneado) ...[
               const SizedBox(height: 16),

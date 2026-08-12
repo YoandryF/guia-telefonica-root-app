@@ -288,15 +288,41 @@ class MainActivity : FlutterActivity() {
 
     private fun getPhoneContacts(): List<Map<String, String>> {
         val contacts = mutableListOf<Map<String, String>>()
-        val cursor = contentResolver.query(
+        val cr = contentResolver
+
+        // Obtener IDs de raw contacts de NUESTRA cuenta (para excluirlos)
+        val nuestrosIds = mutableSetOf<Long>()
+        val rawCursor = cr.query(
+            ContactsContract.RawContacts.CONTENT_URI,
+            arrayOf(ContactsContract.RawContacts.CONTACT_ID),
+            "${ContactsContract.RawContacts.ACCOUNT_TYPE} = ?",
+            arrayOf("com.rootecosystem.guia_telefonica"),
+            null
+        )
+        rawCursor?.use {
+            val idIdx = it.getColumnIndex(ContactsContract.RawContacts.CONTACT_ID)
+            while (it.moveToNext()) {
+                nuestrosIds.add(it.getLong(idIdx))
+            }
+        }
+
+        // Leer todos los contactos con teléfono, excluyendo los nuestros
+        val cursor = cr.query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-            arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
+            arrayOf(
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                ContactsContract.CommonDataKinds.Phone.NUMBER,
+                ContactsContract.CommonDataKinds.Phone.CONTACT_ID
+            ),
             null, null, null
         )
         cursor?.use {
             val nameIdx = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
             val phoneIdx = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+            val contactIdIdx = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
             while (it.moveToNext()) {
+                val contactId = it.getLong(contactIdIdx)
+                if (nuestrosIds.contains(contactId)) continue // Excluir los nuestros
                 val name = it.getString(nameIdx) ?: ""
                 val phone = it.getString(phoneIdx) ?: ""
                 if (phone.isNotEmpty()) contacts.add(mapOf("name" to name, "phone" to phone))
