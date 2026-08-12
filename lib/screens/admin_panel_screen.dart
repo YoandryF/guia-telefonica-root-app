@@ -7,7 +7,6 @@ import 'categorias_admin_screen.dart';
 import 'configuracion_screen.dart';
 import 'contactos_list_screen.dart';
 import 'dashboard_screen.dart';
-import 'dashboard_screen.dart';
 import 'exportar_screen.dart';
 import 'importar_screen.dart';
 import 'reportes_admin_screen.dart';
@@ -159,7 +158,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       Expanded(
                         child: OutlinedButton.icon(
                           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExportarScreen())),
-                          icon: const Icon(Icons.file_download),
+                          icon: const Icon(Icons.upload_file),
                           label: const Text('Exportar'),
                         ),
                       ),
@@ -167,7 +166,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       Expanded(
                         child: OutlinedButton.icon(
                           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ImportarScreen())),
-                          icon: const Icon(Icons.file_upload),
+                          icon: const Icon(Icons.download_for_offline),
                           label: const Text('Importar'),
                         ),
                       ),
@@ -176,19 +175,19 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CategoriasAdminScreen())),
-                    icon: const Icon(Icons.category),
+                    icon: const Icon(Icons.folder_special),
                     label: const Text('Gestionar categorías'),
                   ),
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportesAdminScreen())),
-                    icon: const Icon(Icons.warning_amber, color: Colors.orange),
+                    icon: const Icon(Icons.report_problem, color: Colors.orange),
                     label: const Text('Gestionar reportes'),
                   ),
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminsScreen())),
-                    icon: const Icon(Icons.people, color: Colors.blue),
+                    icon: const Icon(Icons.manage_accounts, color: Colors.blue),
                     label: const Text('Gestionar admins'),
                   ),
                   const SizedBox(height: 8),
@@ -200,7 +199,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ConfiguracionScreen())),
-                    icon: const Icon(Icons.settings, color: Colors.grey),
+                    icon: const Icon(Icons.tune, color: Colors.grey),
                     label: const Text('Configuración (Owner)'),
                   ),
                   const SizedBox(height: 8),

@@ -269,10 +269,13 @@ class _CategoriasAdminScreenState extends State<CategoriasAdminScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('📂 Categorías'),
-        actions: [
-          IconButton(icon: const Icon(Icons.add), onPressed: _crear, tooltip: 'Nueva categoría'),
-        ],
+        title: const Row(
+          children: [
+            Icon(Icons.folder_special, size: 20),
+            SizedBox(width: 8),
+            Text('Categorías'),
+          ],
+        ),
       ),
       body: _cargando
           ? const Center(child: CircularProgressIndicator())

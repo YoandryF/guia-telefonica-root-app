@@ -36,7 +36,7 @@ class _ReportesAdminScreenState extends State<ReportesAdminScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('⚠️ Reportes')),
+      appBar: AppBar(title: const Row(children: [Icon(Icons.report_problem, color: Colors.orange, size: 20), SizedBox(width: 8), Text('Reportes')])),
       body: Column(
         children: [
           // Filtros

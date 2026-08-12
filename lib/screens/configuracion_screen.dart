@@ -41,7 +41,7 @@ class _ConfiguracionScreenState extends State<ConfiguracionScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('⚙️ Configuración')),
+      appBar: AppBar(title: const Row(children: [Icon(Icons.tune, size: 20), SizedBox(width: 8), Text('Configuración')])),
       body: _cargando ? const Center(child: CircularProgressIndicator()) : ListView.builder(
         itemCount: _config.length,
         itemBuilder: (ctx, i) {

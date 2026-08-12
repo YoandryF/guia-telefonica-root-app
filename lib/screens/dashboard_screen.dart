@@ -53,7 +53,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('📊 Dashboard')),
+      appBar: AppBar(title: const Row(children: [Icon(Icons.bar_chart, color: Colors.indigo, size: 20), SizedBox(width: 8), Text('Dashboard')])),
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(

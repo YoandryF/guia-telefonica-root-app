@@ -116,7 +116,7 @@ class _ImportarScreenState extends State<ImportarScreen> with WidgetsBindingObse
         }
       },
       child: Scaffold(
-        appBar: AppBar(title: const Text('📥 Importar')),
+        appBar: AppBar(title: const Row(children: [Icon(Icons.download_for_offline, size: 20), SizedBox(width: 8), Text('Importar')])),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(

@@ -57,7 +57,7 @@ class _ExportarScreenState extends State<ExportarScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('📤 Exportar')),
+      appBar: AppBar(title: const Row(children: [Icon(Icons.upload_file, size: 20), SizedBox(width: 8), Text('Exportar')])),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

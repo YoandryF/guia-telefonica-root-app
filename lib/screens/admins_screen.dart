@@ -91,7 +91,7 @@ class _AdminsScreenState extends State<AdminsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('👥 Administradores')),
+      appBar: AppBar(title: const Row(children: [Icon(Icons.manage_accounts, color: Colors.blue, size: 20), SizedBox(width: 8), Text('Administradores')])),
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
           : _admins.isEmpty
