@@ -84,6 +84,10 @@ class MainActivity : FlutterActivity() {
                     val contacts = getPhoneContacts()
                     result.success(contacts)
                 }
+                "getGuiaContactsInAgenda" -> {
+                    val contacts = getGuiaContactsInAgenda()
+                    result.success(contacts)
+                }
                 "openContact" -> {
                     val phone = call.argument<String>("phone") ?: ""
                     openContactByPhone(phone)
@@ -331,6 +335,59 @@ class MainActivity : FlutterActivity() {
         return contacts
     }
 
+
+    private fun getGuiaContactsInAgenda(): List<Map<String, String>> {
+        val contacts = mutableListOf<Map<String, String>>()
+        val cr = contentResolver
+
+        // Buscar raw contacts de nuestra cuenta
+        val rawCursor = cr.query(
+            ContactsContract.RawContacts.CONTENT_URI,
+            arrayOf(ContactsContract.RawContacts._ID),
+            "${ContactsContract.RawContacts.ACCOUNT_TYPE} = ?",
+            arrayOf("com.rootecosystem.guia_telefonica"),
+            null
+        )
+
+        rawCursor?.use {
+            val idIdx = it.getColumnIndex(ContactsContract.RawContacts._ID)
+            while (it.moveToNext()) {
+                val rawId = it.getLong(idIdx)
+
+                // Obtener nombre
+                var name = ""
+                val nameCursor = cr.query(
+                    ContactsContract.Data.CONTENT_URI,
+                    arrayOf(ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME),
+                    "${ContactsContract.Data.RAW_CONTACT_ID} = ? AND ${ContactsContract.Data.MIMETYPE} = ?",
+                    arrayOf(rawId.toString(), ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE),
+                    null
+                )
+                nameCursor?.use { nc ->
+                    if (nc.moveToFirst()) name = nc.getString(0) ?: ""
+                }
+
+                // Obtener teléfono
+                var phone = ""
+                val phoneCursor = cr.query(
+                    ContactsContract.Data.CONTENT_URI,
+                    arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
+                    "${ContactsContract.Data.RAW_CONTACT_ID} = ? AND ${ContactsContract.Data.MIMETYPE} = ?",
+                    arrayOf(rawId.toString(), ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE),
+                    null
+                )
+                phoneCursor?.use { pc ->
+                    if (pc.moveToFirst()) phone = pc.getString(0) ?: ""
+                }
+
+                if (phone.isNotEmpty()) {
+                    contacts.add(mapOf("name" to name, "phone" to phone))
+                }
+            }
+        }
+
+        return contacts
+    }
 
     // === INSTALADOR APK ===
 

@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/contacto.dart';
-import '../services/contacts_sync_service.dart';
 import '../services/local_database_service.dart';
 
 class CallerIdScreen extends StatefulWidget {
@@ -13,266 +13,269 @@ class CallerIdScreen extends StatefulWidget {
 }
 
 class _CallerIdScreenState extends State<CallerIdScreen> {
-  final _syncService = ContactsSyncService();
+  static const _channel = MethodChannel('guia_telefonica/contacts');
   final _localDb = LocalDatabaseService();
   final _searchCtrl = TextEditingController();
 
-  List<Contacto> _contactos = [];
-  List<Contacto> _filtrados = [];
+  // Contactos de la guía que YA están en la agenda
+  List<Map<String, String>> _enAgenda = [];
+  // Contactos de la guía disponibles para sincronizar (NO están en agenda)
+  List<Contacto> _disponibles = [];
+
   Set<String> _seleccionados = {};
   bool _cargando = true;
-  bool _sincronizando = false;
-  bool _seleccionTodos = false;
-  SyncProgress? _progreso;
-  String _modo = 'inicio'; // inicio, seleccion, sincronizando, eliminando, completado, completado_eliminar
-  String _accionPendiente = 'sync'; // sync o eliminar
+  bool _procesando = false;
+  int _procesados = 0;
+  int _total = 0;
+  String _statusMsg = '';
+  String _modo = 'inicio'; // inicio, verAgenda, seleccionarSync, seleccionarEliminar, procesando, resultado
+  String _resultadoTitulo = '';
+  String _resultadoMsg = '';
+  bool _resultadoOk = true;
 
   @override
   void initState() {
     super.initState();
-    _cargarContactos();
-  }
-
-  Future<void> _cargarContactos() async {
-    final contactos = await _localDb.getAllContactos();
-    setState(() {
-      _contactos = contactos;
-      _filtrados = contactos;
-      _cargando = false;
-    });
-  }
-
-  void _filtrar(String query) {
-    setState(() {
-      if (query.isEmpty) {
-        _filtrados = _contactos;
-      } else {
-        final q = query.toLowerCase();
-        _filtrados = _contactos.where((c) =>
-          c.nombre.toLowerCase().contains(q) ||
-          c.apellido.toLowerCase().contains(q) ||
-          c.telefono.contains(q)
-        ).toList();
-      }
-    });
-  }
-
-  void _toggleSeleccion(String id) {
-    setState(() {
-      if (_seleccionados.contains(id)) {
-        _seleccionados.remove(id);
-      } else {
-        _seleccionados.add(id);
-      }
-    });
-  }
-
-  void _toggleTodos() {
-    setState(() {
-      if (_seleccionTodos) {
-        _seleccionados.clear();
-      } else {
-        _seleccionados = _filtrados.map((c) => c.id).toSet();
-      }
-      _seleccionTodos = !_seleccionTodos;
-    });
+    _cargarDatos();
   }
 
   Future<bool> _pedirPermiso() async {
     final status = await Permission.contacts.request();
-    if (!status.isGranted) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('⚠️ Se necesita permiso de contactos'), backgroundColor: Colors.orange),
-        );
-      }
+    if (!status.isGranted && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⚠️ Se necesita permiso de contactos'), backgroundColor: Colors.orange),
+      );
       return false;
     }
     return true;
   }
 
+  Future<void> _cargarDatos() async {
+    setState(() => _cargando = true);
+
+    if (!await _pedirPermiso()) {
+      setState(() => _cargando = false);
+      return;
+    }
+
+    try {
+      // Obtener contactos de nuestra cuenta en la agenda
+      final result = await _channel.invokeMethod('getGuiaContactsInAgenda');
+      final enAgenda = List<Map<dynamic, dynamic>>.from(result)
+          .map((m) => {'name': m['name']?.toString() ?? '', 'phone': m['phone']?.toString() ?? ''})
+          .toList();
+
+      // Obtener todos los contactos de la BD local
+      final todos = await _localDb.getAllContactos();
+
+      // Determinar cuáles NO están en la agenda (disponibles para sync)
+      final telefonosEnAgenda = enAgenda.map((c) => _normalizar(c['phone'] ?? '')).toSet();
+      final disponibles = todos.where((c) => !telefonosEnAgenda.contains(_normalizar(c.telefono))).toList();
+
+      setState(() {
+        _enAgenda = enAgenda;
+        _disponibles = disponibles;
+        _cargando = false;
+      });
+    } catch (e) {
+      setState(() => _cargando = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  String _normalizar(String tel) => tel.replaceAll(RegExp(r'[^0-9]'), '');
+
+  // =============== SINCRONIZAR ===============
+
   Future<void> _sincronizarTodos() async {
-    if (!await _pedirPermiso()) return;
-    _iniciarSync(_contactos);
+    _iniciarSync(_disponibles);
   }
 
   Future<void> _sincronizarSeleccionados() async {
-    if (_seleccionados.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('⚠️ Selecciona al menos un contacto')),
-      );
-      return;
-    }
-    if (!await _pedirPermiso()) return;
-
-    final seleccionados = _contactos.where((c) => _seleccionados.contains(c.id)).toList();
-
-    if (_accionPendiente == 'eliminar') {
-      _iniciarEliminacion(seleccionados);
-    } else {
-      _iniciarSync(seleccionados);
-    }
+    if (_seleccionados.isEmpty) return;
+    final seleccionados = _disponibles.where((c) => _seleccionados.contains(c.id)).toList();
+    _iniciarSync(seleccionados);
   }
 
-  void _iniciarSync(List<Contacto> contactos) {
+  Future<void> _iniciarSync(List<Contacto> contactos) async {
     setState(() {
-      _sincronizando = true;
-      _progreso = null;
-      _modo = 'sincronizando';
+      _procesando = true;
+      _procesados = 0;
+      _total = contactos.length;
+      _modo = 'procesando';
+      _statusMsg = 'Sincronizando...';
     });
 
-    _syncService.syncContactosStream(contactos).listen(
-      (progress) {
-        if (mounted) {
-          setState(() => _progreso = progress);
+    int created = 0, updated = 0, exists = 0, errors = 0;
+
+    for (var i = 0; i < contactos.length; i++) {
+      final c = contactos[i];
+      try {
+        final result = await _channel.invokeMethod('syncContact', {
+          'nombre': c.nombre,
+          'apellido': c.apellido,
+          'telefono': c.telefono,
+          'reportado': c.tieneReportes,
+        });
+        switch (result) {
+          case 'created': created++; break;
+          case 'updated': updated++; break;
+          case 'exists': exists++; break;
         }
-      },
-      onDone: () {
-        if (mounted) {
-          setState(() {
-            _sincronizando = false;
-            _modo = 'completado';
-          });
-        }
-      },
-      onError: (_) {
-        if (mounted) {
-          setState(() {
-            _sincronizando = false;
-            _modo = 'completado';
-          });
-        }
-      },
-    );
+      } catch (_) { errors++; }
+
+      if (i % 3 == 0 || i == contactos.length - 1) {
+        setState(() {
+          _procesados = i + 1;
+          _statusMsg = '${c.nombre} ${c.apellido}';
+        });
+      }
+    }
+
+    setState(() {
+      _procesando = false;
+      _modo = 'resultado';
+      _resultadoOk = true;
+      _resultadoTitulo = '✅ Sincronización completada';
+      _resultadoMsg = '🆕 $created nuevos\n📝 $updated actualizados\n✓ $exists ya existían${errors > 0 ? '\n❌ $errors errores' : ''}';
+    });
+
+    _cargarDatos();
   }
 
-  Future<void> _eliminar() async {
-    final confirmar = await showDialog<bool>(
+  // =============== ELIMINAR ===============
+
+  Future<void> _eliminarTodos() async {
+    final confirmar = await _confirmarDialog(
+      '¿Eliminar todos?',
+      'Se eliminarán los ${_enAgenda.length} contactos de la Guía Telefónica de tu agenda.',
+    );
+    if (!confirmar) return;
+
+    setState(() {
+      _procesando = true;
+      _procesados = 0;
+      _total = _enAgenda.length;
+      _modo = 'procesando';
+      _statusMsg = 'Eliminando...';
+    });
+
+    int eliminados = 0, errors = 0;
+
+    for (var i = 0; i < _enAgenda.length; i++) {
+      final c = _enAgenda[i];
+      try {
+        final result = await _channel.invokeMethod('removeContact', {'telefono': c['phone']});
+        if (result == true) eliminados++;
+        else errors++;
+      } catch (_) { errors++; }
+
+      if (i % 3 == 0 || i == _enAgenda.length - 1) {
+        setState(() {
+          _procesados = i + 1;
+          _statusMsg = c['name'] ?? '';
+        });
+      }
+    }
+
+    setState(() {
+      _procesando = false;
+      _modo = 'resultado';
+      _resultadoOk = true;
+      _resultadoTitulo = '🗑️ Eliminación completada';
+      _resultadoMsg = '🗑️ $eliminados eliminados${errors > 0 ? '\n❌ $errors errores' : ''}';
+    });
+
+    _cargarDatos();
+  }
+
+  Future<void> _eliminarSeleccionados() async {
+    if (_seleccionados.isEmpty) return;
+    final seleccionados = _enAgenda.where((c) => _seleccionados.contains(c['phone'])).toList();
+
+    setState(() {
+      _procesando = true;
+      _procesados = 0;
+      _total = seleccionados.length;
+      _modo = 'procesando';
+      _statusMsg = 'Eliminando...';
+    });
+
+    int eliminados = 0, errors = 0;
+
+    for (var i = 0; i < seleccionados.length; i++) {
+      final c = seleccionados[i];
+      try {
+        final result = await _channel.invokeMethod('removeContact', {'telefono': c['phone']});
+        if (result == true) eliminados++;
+        else errors++;
+      } catch (_) { errors++; }
+
+      if (i % 3 == 0 || i == seleccionados.length - 1) {
+        setState(() {
+          _procesados = i + 1;
+          _statusMsg = c['name'] ?? '';
+        });
+      }
+    }
+
+    setState(() {
+      _procesando = false;
+      _modo = 'resultado';
+      _resultadoOk = true;
+      _resultadoTitulo = '🗑️ Eliminación completada';
+      _resultadoMsg = '🗑️ $eliminados eliminados${errors > 0 ? '\n❌ $errors errores' : ''}';
+    });
+
+    _cargarDatos();
+  }
+
+  Future<bool> _confirmarDialog(String titulo, String mensaje) async {
+    final r = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('¿Eliminar contactos de la agenda?'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('Se eliminarán los contactos de "Guía Telefónica" de tu agenda. Tus contactos personales no se tocan.'),
-          const SizedBox(height: 16),
-          Row(children: [
-            Expanded(child: OutlinedButton(
-              onPressed: () => Navigator.pop(ctx, null), // null = elegir
-              child: const Text('Elegir cuáles'),
-            )),
-            const SizedBox(width: 8),
-            Expanded(child: FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              style: FilledButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Todos'),
-            )),
-          ]),
-        ]),
+        title: Text(titulo),
+        content: Text(mensaje),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Eliminar'),
+          ),
         ],
       ),
     );
-
-    if (confirmar == false) return;
-
-    if (!await _pedirPermiso()) return;
-
-    if (confirmar == null) {
-      // Modo selección para eliminar
-      setState(() {
-        _modo = 'seleccion';
-        _accionPendiente = 'eliminar';
-      });
-      return;
-    }
-
-    // Eliminar todos con progreso
-    setState(() {
-      _sincronizando = true;
-      _progreso = null;
-      _modo = 'eliminando';
-    });
-
-    final count = await _syncService.removeAll();
-    
-    if (mounted) {
-      setState(() {
-        _progreso = SyncProgress(
-          total: count,
-          procesados: count,
-          created: count,
-          completado: true,
-        );
-        _sincronizando = false;
-        _modo = 'completado_eliminar';
-      });
-    }
+    return r ?? false;
   }
 
-  void _iniciarEliminacion(List<Contacto> contactos) {
-    setState(() {
-      _sincronizando = true;
-      _progreso = null;
-      _modo = 'eliminando';
-    });
-
-    _syncService.removeContactosStream(contactos).listen(
-      (progress) {
-        if (mounted) setState(() => _progreso = progress);
-      },
-      onDone: () {
-        if (mounted) {
-          setState(() {
-            _sincronizando = false;
-            _modo = 'completado_eliminar';
-          });
-        }
-      },
-      onError: (_) {
-        if (mounted) {
-          setState(() {
-            _sincronizando = false;
-            _modo = 'completado_eliminar';
-          });
-        }
-      },
-    );
-  }
+  // =============== UI ===============
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('📇 Sincronizar agenda'),
-        actions: [
-          if (_modo == 'seleccion')
-            TextButton(
-              onPressed: _toggleTodos,
-              child: Text(_seleccionTodos ? 'Ninguno' : 'Todos'),
-            ),
-        ],
       ),
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
           : _buildBody(),
-      bottomNavigationBar: _buildBottomBar(),
+      bottomNavigationBar: _buildBottom(),
     );
   }
 
   Widget _buildBody() {
     switch (_modo) {
-      case 'sincronizando':
-        return _buildProgreso(eliminando: false);
-      case 'eliminando':
-        return _buildProgreso(eliminando: true);
-      case 'completado':
-        return _buildResultado(eliminando: false);
-      case 'completado_eliminar':
-        return _buildResultado(eliminando: true);
-      case 'seleccion':
-        return _buildSeleccion();
-      default:
-        return _buildInicio();
+      case 'procesando': return _buildProcesando();
+      case 'resultado': return _buildResultado();
+      case 'verAgenda': return _buildListaEnAgenda();
+      case 'seleccionarSync': return _buildSeleccion(_disponibles.map((c) => {'id': c.id, 'name': '${c.nombre} ${c.apellido}', 'phone': c.telefono}).toList());
+      case 'seleccionarEliminar': return _buildSeleccion(_enAgenda.map((c) => {'id': c['phone']!, 'name': c['name']!, 'phone': c['phone']!}).toList());
+      default: return _buildInicio();
     }
   }
 
@@ -282,21 +285,79 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Card(
+          // Estado actual
+          Card(
             child: Padding(
-              padding: EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  Icon(Icons.phone_callback, size: 48, color: Color(0xFF0284C7)),
-                  SizedBox(height: 12),
+                  const Icon(Icons.phone_callback, size: 48, color: Color(0xFF0284C7)),
+                  const SizedBox(height: 12),
                   Text(
-                    'Sincroniza los contactos de la guía con tu agenda para identificar llamadas y SMS automáticamente.',
-                    textAlign: TextAlign.center,
+                    '${_enAgenda.length} contactos de la guía en tu agenda',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${_disponibles.length} disponibles para sincronizar',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                   ),
                 ],
               ),
             ),
           ),
+          const SizedBox(height: 16),
+
+          // Ver en agenda
+          if (_enAgenda.isNotEmpty)
+            OutlinedButton.icon(
+              onPressed: () => setState(() => _modo = 'verAgenda'),
+              icon: const Icon(Icons.list),
+              label: Text('Ver contactos en agenda (${_enAgenda.length})'),
+            ),
+          const SizedBox(height: 12),
+
+          // Sincronizar
+          if (_disponibles.isNotEmpty) ...[
+            FilledButton.icon(
+              onPressed: _sincronizarTodos,
+              icon: const Icon(Icons.sync),
+              label: Text('Sincronizar todos (${_disponibles.length})'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => setState(() { _modo = 'seleccionarSync'; _seleccionados.clear(); }),
+              icon: const Icon(Icons.checklist),
+              label: const Text('Elegir cuáles sincronizar'),
+            ),
+          ] else
+            const Card(
+              color: Color(0xFFe8f5e9),
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: Text('✅ Todos los contactos ya están en tu agenda', textAlign: TextAlign.center),
+              ),
+            ),
+
+          const SizedBox(height: 20),
+
+          // Eliminar
+          if (_enAgenda.isNotEmpty) ...[
+            const Divider(),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _eliminarTodos,
+              icon: const Icon(Icons.delete, color: Colors.red),
+              label: Text('Eliminar todos de la agenda (${_enAgenda.length})', style: const TextStyle(color: Colors.red)),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => setState(() { _modo = 'seleccionarEliminar'; _seleccionados.clear(); }),
+              icon: const Icon(Icons.checklist, color: Colors.red),
+              label: const Text('Elegir cuáles eliminar', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+
           const SizedBox(height: 16),
           const Card(
             child: Padding(
@@ -304,104 +365,37 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('¿Cómo funciona?', style: TextStyle(fontWeight: FontWeight.bold)),
-                  SizedBox(height: 8),
-                  Text('• Si el contacto NO está en tu agenda → se crea nuevo'),
-                  Text('• Si el contacto YA existe (mismo nombre) → se agrega el número'),
-                  Text('• Si el contacto está reportado → se marca con ⚠️'),
-                  Text('• Tus contactos personales NO se modifican'),
+                  Text('¿Cómo funciona?', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  SizedBox(height: 4),
+                  Text('• Solo gestiona contactos de "Guía Telefónica"', style: TextStyle(fontSize: 11)),
+                  Text('• Tus contactos personales NO se tocan', style: TextStyle(fontSize: 11)),
+                  Text('• Los reportados se marcan con ⚠️', style: TextStyle(fontSize: 11)),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: _sincronizarTodos,
-            icon: const Icon(Icons.sync),
-            label: Text('Sincronizar todos (${_contactos.length})'),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: () => setState(() => _modo = 'seleccion'),
-            icon: const Icon(Icons.checklist),
-            label: const Text('Elegir contactos específicos'),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: _eliminar,
-            icon: const Icon(Icons.delete, color: Colors.red),
-            label: const Text('Eliminar de la agenda', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSeleccion() {
+  Widget _buildListaEnAgenda() {
     return Column(
       children: [
-        // Barra de búsqueda
         Padding(
           padding: const EdgeInsets.all(12),
-          child: TextField(
-            controller: _searchCtrl,
-            onChanged: _filtrar,
-            decoration: InputDecoration(
-              hintText: 'Buscar contacto...',
-              prefixIcon: const Icon(Icons.search),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              isDense: true,
-              suffixIcon: _searchCtrl.text.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () {
-                        _searchCtrl.clear();
-                        _filtrar('');
-                      },
-                    )
-                  : null,
-            ),
-          ),
+          child: Text('${_enAgenda.length} contactos de la guía en tu agenda',
+              style: const TextStyle(fontWeight: FontWeight.w500)),
         ),
-
-        // Contador
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              Text(
-                '${_seleccionados.length} seleccionados de ${_filtrados.length}',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: _toggleTodos,
-                icon: Icon(_seleccionTodos ? Icons.deselect : Icons.select_all, size: 16),
-                label: Text(_seleccionTodos ? 'Ninguno' : 'Todos', style: const TextStyle(fontSize: 12)),
-              ),
-            ],
-          ),
-        ),
-
-        // Lista
         Expanded(
           child: ListView.builder(
-            itemCount: _filtrados.length,
+            itemCount: _enAgenda.length,
             itemBuilder: (ctx, i) {
-              final c = _filtrados[i];
-              final seleccionado = _seleccionados.contains(c.id);
-              return CheckboxListTile(
-                value: seleccionado,
-                onChanged: (_) => _toggleSeleccion(c.id),
-                title: Text('${c.nombre} ${c.apellido}', style: const TextStyle(fontSize: 14)),
-                subtitle: Text(c.telefono, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                secondary: CircleAvatar(
-                  backgroundColor: seleccionado ? Colors.blue : Colors.grey[200],
-                  child: Text(
-                    c.nombre.isNotEmpty ? c.nombre[0].toUpperCase() : '?',
-                    style: TextStyle(color: seleccionado ? Colors.white : Colors.grey[700]),
-                  ),
-                ),
+              final c = _enAgenda[i];
+              return ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.person, size: 20)),
+                title: Text(c['name'] ?? '', style: const TextStyle(fontSize: 14)),
+                subtitle: Text(c['phone'] ?? '', style: const TextStyle(fontSize: 12)),
                 dense: true,
               );
             },
@@ -411,137 +405,132 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
     );
   }
 
-  Widget _buildProgreso({required bool eliminando}) {
-    final p = _progreso;
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(eliminando ? Icons.delete_sweep : Icons.sync, size: 64, color: eliminando ? Colors.red : const Color(0xFF0284C7)),
-          const SizedBox(height: 24),
-          Text(
-            eliminando ? 'Eliminando de tu agenda...' : 'Sincronizando con tu agenda...',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 24),
+  Widget _buildSeleccion(List<Map<String, String>> items) {
+    final filtrados = _searchCtrl.text.isEmpty
+        ? items
+        : items.where((c) {
+            final q = _searchCtrl.text.toLowerCase();
+            return (c['name'] ?? '').toLowerCase().contains(q) || (c['phone'] ?? '').contains(q);
+          }).toList();
 
-          // Barra de progreso
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: LinearProgressIndicator(
-              value: p != null && p.total > 0 ? p.progreso : null,
-              minHeight: 14,
-              backgroundColor: Colors.grey[200],
-              color: eliminando ? Colors.red : null,
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: TextField(
+            controller: _searchCtrl,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              hintText: 'Buscar...',
+              prefixIcon: const Icon(Icons.search),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              isDense: true,
+              suffixIcon: _searchCtrl.text.isNotEmpty
+                  ? IconButton(icon: const Icon(Icons.clear), onPressed: () { _searchCtrl.clear(); setState(() {}); })
+                  : null,
             ),
           ),
-          const SizedBox(height: 12),
-
-          // Porcentaje y conteo
-          if (p != null && p.total > 0)
-            Text(
-              '${(p.progreso * 100).toStringAsFixed(0)}%  —  ${p.procesados} / ${p.total}',
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-            )
-          else
-            Text(
-              eliminando ? 'Procesando eliminación...' : 'Procesando...',
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-            ),
-          const SizedBox(height: 8),
-
-          // Contacto actual
-          if (p?.contactoActual != null)
-            Text(
-              p!.contactoActual!,
-              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-              overflow: TextOverflow.ellipsis,
-            ),
-
-          const SizedBox(height: 24),
-
-          // Stats en tiempo real
-          if (p != null)
-            Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
-              children: eliminando
-                  ? [
-                      _statChip('🗑️ ${p.created}', 'eliminados', Colors.red),
-                      if (p.errors > 0) _statChip('❌ ${p.errors}', 'errores', Colors.orange),
-                    ]
-                  : [
-                      _statChip('🆕 ${p.created}', 'nuevos', Colors.green),
-                      _statChip('📝 ${p.updated}', 'actualizados', Colors.blue),
-                      _statChip('✓ ${p.exists}', 'existentes', Colors.grey),
-                      if (p.errors > 0) _statChip('❌ ${p.errors}', 'errores', Colors.red),
-                    ],
-            ),
-
-          const SizedBox(height: 24),
-          Text(
-            '⚠️ No salgas de esta pantalla',
-            style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              Text('${_seleccionados.length} seleccionados', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              const Spacer(),
+              TextButton(
+                onPressed: () => setState(() {
+                  if (_seleccionados.length == items.length) {
+                    _seleccionados.clear();
+                  } else {
+                    _seleccionados = items.map((c) => c['id']!).toSet();
+                  }
+                }),
+                child: Text(_seleccionados.length == items.length ? 'Ninguno' : 'Todos', style: const TextStyle(fontSize: 12)),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            itemCount: filtrados.length,
+            itemBuilder: (ctx, i) {
+              final c = filtrados[i];
+              final sel = _seleccionados.contains(c['id']);
+              return CheckboxListTile(
+                value: sel,
+                onChanged: (_) => setState(() {
+                  if (sel) _seleccionados.remove(c['id']);
+                  else _seleccionados.add(c['id']!);
+                }),
+                title: Text(c['name'] ?? '', style: const TextStyle(fontSize: 14)),
+                subtitle: Text(c['phone'] ?? '', style: const TextStyle(fontSize: 12)),
+                dense: true,
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildResultado({required bool eliminando}) {
-    final p = _progreso;
+  Widget _buildProcesando() {
+    final progreso = _total > 0 ? _procesados / _total : 0.0;
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            eliminando ? Icons.delete_forever : Icons.check_circle,
+            _statusMsg.contains('Eliminando') ? Icons.delete_sweep : Icons.sync,
             size: 64,
-            color: eliminando ? Colors.red : Colors.green,
+            color: _statusMsg.contains('Eliminando') ? Colors.red : const Color(0xFF0284C7),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            '$_procesados / $_total',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
-          Text(
-            eliminando ? '🗑️ Eliminación completada' : '✅ Sincronización completada',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 24),
-
-          if (p != null)
-            Card(
-              color: (eliminando ? Colors.red : Colors.green).withOpacity(0.05),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: eliminando
-                      ? [
-                          _resultRow('🗑️ Eliminados', p.created),
-                          if (p.errors > 0) _resultRow('❌ Errores', p.errors),
-                          const Divider(),
-                          _resultRow('📊 Total procesados', p.procesados),
-                        ]
-                      : [
-                          _resultRow('🆕 Nuevos en agenda', p.created),
-                          _resultRow('📝 Actualizados', p.updated),
-                          _resultRow('✓ Ya existían', p.exists),
-                          if (p.errors > 0) _resultRow('❌ Errores', p.errors),
-                          const Divider(),
-                          _resultRow('📊 Total procesados', p.procesados),
-                        ],
-                ),
-              ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: progreso,
+              minHeight: 14,
+              backgroundColor: Colors.grey[200],
             ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${(progreso * 100).toStringAsFixed(0)}%',
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 12),
+          Text(_statusMsg, style: TextStyle(fontSize: 12, color: Colors.grey[500]), overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 24),
+          Text('⚠️ No salgas de esta pantalla', style: TextStyle(fontSize: 11, color: Colors.grey[400])),
+        ],
+      ),
+    );
+  }
 
+  Widget _buildResultado() {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            _resultadoOk ? Icons.check_circle : Icons.error,
+            size: 64,
+            color: _resultadoOk ? Colors.green : Colors.red,
+          ),
+          const SizedBox(height: 16),
+          Text(_resultadoTitulo, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          Text(_resultadoMsg, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14)),
           const SizedBox(height: 24),
           FilledButton.icon(
-            onPressed: () => setState(() {
-              _modo = 'inicio';
-              _progreso = null;
-              _seleccionados.clear();
-              _accionPendiente = 'sync';
-            }),
+            onPressed: () => setState(() { _modo = 'inicio'; _seleccionados.clear(); }),
             icon: const Icon(Icons.arrow_back),
             label: const Text('Volver'),
           ),
@@ -550,66 +539,64 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
     );
   }
 
-  Widget? _buildBottomBar() {
-    if (_modo != 'seleccion' || _sincronizando) return null;
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () => setState(() {
-                  _modo = 'inicio';
-                  _seleccionados.clear();
-                  _searchCtrl.clear();
-                  _filtrar('');
-                  _accionPendiente = 'sync';
-                }),
-                child: const Text('Cancelar'),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 2,
-              child: FilledButton.icon(
-                onPressed: _seleccionados.isEmpty ? null : _sincronizarSeleccionados,
-                icon: Icon(_accionPendiente == 'eliminar' ? Icons.delete : Icons.sync),
-                label: Text('${_accionPendiente == 'eliminar' ? 'Eliminar' : 'Sincronizar'} (${_seleccionados.length})'),
-                style: _accionPendiente == 'eliminar'
-                    ? FilledButton.styleFrom(backgroundColor: Colors.red)
-                    : null,
-              ),
-            ),
-          ],
+  Widget? _buildBottom() {
+    if (_modo == 'verAgenda') {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: OutlinedButton(
+            onPressed: () => setState(() => _modo = 'inicio'),
+            child: const Text('Volver'),
+          ),
         ),
-      ),
-    );
-  }
+      );
+    }
 
-  Widget _statChip(String value, String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Text('$value $label', style: TextStyle(fontSize: 11, color: color.withOpacity(0.8))),
-    );
-  }
+    if (_modo == 'seleccionarSync') {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Expanded(child: OutlinedButton(
+                onPressed: () => setState(() { _modo = 'inicio'; _seleccionados.clear(); _searchCtrl.clear(); }),
+                child: const Text('Cancelar'),
+              )),
+              const SizedBox(width: 12),
+              Expanded(flex: 2, child: FilledButton.icon(
+                onPressed: _seleccionados.isEmpty ? null : _sincronizarSeleccionados,
+                icon: const Icon(Icons.sync),
+                label: Text('Sincronizar (${_seleccionados.length})'),
+              )),
+            ],
+          ),
+        ),
+      );
+    }
 
-  Widget _resultRow(String label, int value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 14)),
-          Text('$value', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
+    if (_modo == 'seleccionarEliminar') {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Expanded(child: OutlinedButton(
+                onPressed: () => setState(() { _modo = 'inicio'; _seleccionados.clear(); _searchCtrl.clear(); }),
+                child: const Text('Cancelar'),
+              )),
+              const SizedBox(width: 12),
+              Expanded(flex: 2, child: FilledButton.icon(
+                onPressed: _seleccionados.isEmpty ? null : _eliminarSeleccionados,
+                icon: const Icon(Icons.delete),
+                label: Text('Eliminar (${_seleccionados.length})'),
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              )),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return null;
   }
 }
