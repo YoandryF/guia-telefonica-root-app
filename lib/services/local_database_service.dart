@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/contacto.dart';
@@ -63,47 +64,49 @@ class LocalDatabaseService {
       await db.execute('CREATE INDEX IF NOT EXISTS idx_ca_municipio ON contactos_aprobados(municipio)');
     }
     if (oldVersion < 7) {
-      // FTS5 para búsqueda ultrarrápida en 25k registros
-      await db.execute('''
-        CREATE VIRTUAL TABLE IF NOT EXISTS contactos_fts USING fts5(
-          id UNINDEXED,
-          nombre,
-          apellido,
-          telefono,
-          ci,
-          provincia,
-          municipio,
-          content=contactos_aprobados,
-          content_rowid=rowid
-        )
-      ''');
-      // Poblar FTS5 con datos existentes
-      await db.execute('''
-        INSERT INTO contactos_fts(rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
-        SELECT rowid, id, nombre, apellido, telefono, ci, provincia, municipio
-        FROM contactos_aprobados
-      ''');
-      // Triggers para mantener FTS5 actualizado
-      await db.execute('''
-        CREATE TRIGGER IF NOT EXISTS ca_ai AFTER INSERT ON contactos_aprobados BEGIN
+      // FTS5 para búsqueda ultrarrápida — si falla, continuar sin FTS
+      try {
+        await db.execute('''
+          CREATE VIRTUAL TABLE IF NOT EXISTS contactos_fts USING fts5(
+            id UNINDEXED,
+            nombre,
+            apellido,
+            telefono,
+            ci,
+            provincia,
+            municipio,
+            content=contactos_aprobados,
+            content_rowid=rowid
+          )
+        ''');
+        await db.execute('''
           INSERT INTO contactos_fts(rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
-          VALUES (new.rowid, new.id, new.nombre, new.apellido, new.telefono, new.ci, new.provincia, new.municipio);
-        END
-      ''');
-      await db.execute('''
-        CREATE TRIGGER IF NOT EXISTS ca_ad AFTER DELETE ON contactos_aprobados BEGIN
-          INSERT INTO contactos_fts(contactos_fts, rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
-          VALUES ('delete', old.rowid, old.id, old.nombre, old.apellido, old.telefono, old.ci, old.provincia, old.municipio);
-        END
-      ''');
-      await db.execute('''
-        CREATE TRIGGER IF NOT EXISTS ca_au AFTER UPDATE ON contactos_aprobados BEGIN
-          INSERT INTO contactos_fts(contactos_fts, rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
-          VALUES ('delete', old.rowid, old.id, old.nombre, old.apellido, old.telefono, old.ci, old.provincia, old.municipio);
-          INSERT INTO contactos_fts(rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
-          VALUES (new.rowid, new.id, new.nombre, new.apellido, new.telefono, new.ci, new.provincia, new.municipio);
-        END
-      ''');
+          SELECT rowid, id, nombre, apellido, telefono, ci, provincia, municipio
+          FROM contactos_aprobados
+        ''');
+        await db.execute('''
+          CREATE TRIGGER IF NOT EXISTS ca_ai AFTER INSERT ON contactos_aprobados BEGIN
+            INSERT INTO contactos_fts(rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
+            VALUES (new.rowid, new.id, new.nombre, new.apellido, new.telefono, new.ci, new.provincia, new.municipio);
+          END
+        ''');
+        await db.execute('''
+          CREATE TRIGGER IF NOT EXISTS ca_ad AFTER DELETE ON contactos_aprobados BEGIN
+            INSERT INTO contactos_fts(contactos_fts, rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
+            VALUES ('delete', old.rowid, old.id, old.nombre, old.apellido, old.telefono, old.ci, old.provincia, old.municipio);
+          END
+        ''');
+        await db.execute('''
+          CREATE TRIGGER IF NOT EXISTS ca_au AFTER UPDATE ON contactos_aprobados BEGIN
+            INSERT INTO contactos_fts(contactos_fts, rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
+            VALUES ('delete', old.rowid, old.id, old.nombre, old.apellido, old.telefono, old.ci, old.provincia, old.municipio);
+            INSERT INTO contactos_fts(rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
+            VALUES (new.rowid, new.id, new.nombre, new.apellido, new.telefono, new.ci, new.provincia, new.municipio);
+          END
+        ''');
+      } catch (e) {
+        debugPrint('FTS5 migration failed (non-critical): $e');
+      }
     }
   }
 
@@ -205,22 +208,6 @@ class LocalDatabaseService {
     return maps.map((m) => Contacto.fromJson(m)).toList();
   }
 
-  /// Cuenta total de contactos sin cargarlos en memoria
-  Future<int> countContactos({String? categoriaId, String? provincia, String? municipio, bool soloReportados = false}) async {
-    final db = await database;
-    final where = <String>[];
-    final args = <dynamic>[];
-    if (categoriaId != null) { where.add('categoria_id = ?'); args.add(categoriaId); }
-    if (provincia != null) { where.add('provincia = ?'); args.add(provincia); }
-    if (municipio != null) { where.add('municipio = ?'); args.add(municipio); }
-    if (soloReportados) { where.add('tiene_reportes = 1'); }
-    final result = await db.rawQuery(
-      'SELECT COUNT(*) as c FROM contactos_aprobados${where.isNotEmpty ? ' WHERE ${where.join(' AND ')}' : ''}',
-      args,
-    );
-    return (result.first['c'] as int?) ?? 0;
-  }
-
   /// Paginación SQL — no carga 25k en memoria, solo la página solicitada
   Future<List<Contacto>> getContactosPaginados({
     int offset = 0,
@@ -230,19 +217,45 @@ class LocalDatabaseService {
     String? municipio,
     bool soloReportados = false,
   }) async {
-    final db = await database;
-    final where = <String>[];
-    final args = <dynamic>[];
-    if (categoriaId != null) { where.add('categoria_id = ?'); args.add(categoriaId); }
-    if (provincia != null) { where.add('provincia = ?'); args.add(provincia); }
-    if (municipio != null) { where.add('municipio = ?'); args.add(municipio); }
-    if (soloReportados) { where.add('tiene_reportes = 1'); }
-    args.addAll([limit, offset]);
-    final maps = await db.rawQuery(
-      'SELECT * FROM contactos_aprobados${where.isNotEmpty ? ' WHERE ${where.join(' AND ')}' : ''} ORDER BY nombre ASC LIMIT ? OFFSET ?',
-      args,
-    );
-    return maps.map((m) => Contacto.fromJson(m)).toList();
+    try {
+      final db = await database;
+      final where = <String>[];
+      final args = <dynamic>[];
+      if (categoriaId != null) { where.add('categoria_id = ?'); args.add(categoriaId); }
+      if (provincia != null) { where.add('provincia = ?'); args.add(provincia); }
+      if (municipio != null) { where.add('municipio = ?'); args.add(municipio); }
+      if (soloReportados) { where.add('tiene_reportes = 1'); }
+      args.addAll([limit, offset]);
+      final maps = await db.rawQuery(
+        'SELECT * FROM contactos_aprobados${where.isNotEmpty ? ' WHERE ${where.join(' AND ')}' : ''} ORDER BY nombre ASC LIMIT ? OFFSET ?',
+        args,
+      );
+      return maps.map((m) => Contacto.fromJson(m)).toList();
+    } catch (e) {
+      debugPrint('getContactosPaginados error: $e');
+      return [];
+    }
+  }
+
+  /// Cuenta total de contactos sin cargarlos en memoria
+  Future<int> countContactos({String? categoriaId, String? provincia, String? municipio, bool soloReportados = false}) async {
+    try {
+      final db = await database;
+      final where = <String>[];
+      final args = <dynamic>[];
+      if (categoriaId != null) { where.add('categoria_id = ?'); args.add(categoriaId); }
+      if (provincia != null) { where.add('provincia = ?'); args.add(provincia); }
+      if (municipio != null) { where.add('municipio = ?'); args.add(municipio); }
+      if (soloReportados) { where.add('tiene_reportes = 1'); }
+      final result = await db.rawQuery(
+        'SELECT COUNT(*) as c FROM contactos_aprobados${where.isNotEmpty ? ' WHERE ${where.join(' AND ')}' : ''}',
+        args,
+      );
+      return (result.first['c'] as int?) ?? 0;
+    } catch (e) {
+      debugPrint('countContactos error: $e');
+      return 0;
+    }
   }
 
   /// Búsqueda paginada — usa FTS5 si disponible, fallback LIKE
@@ -398,6 +411,22 @@ class LocalDatabaseService {
     final db = await database;
     final maps = await db.query('favoritos', orderBy: 'orden ASC');
     return maps.map((m) => m['contacto_id'] as String).toList();
+  }
+
+  Future<List<Contacto>> getContactosPorIds(List<String> ids) async {
+    if (ids.isEmpty) return [];
+    try {
+      final db = await database;
+      final placeholders = ids.map((_) => '?').join(',');
+      final maps = await db.rawQuery(
+        'SELECT * FROM contactos_aprobados WHERE id IN ($placeholders)',
+        ids,
+      );
+      return maps.map((m) => Contacto.fromJson(m)).toList();
+    } catch (e) {
+      debugPrint('getContactosPorIds error: $e');
+      return [];
+    }
   }
 
   Future<void> agregarFavorito(String contactoId) async {

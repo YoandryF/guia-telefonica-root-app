@@ -94,24 +94,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     setState(() => _cargando = true);
     _ultimaSync = await _localDb.getUltimaSincronizacion();
     final favIds = await _localDb.getFavoritosIds();
-    // Cargar solo los favoritos (subset pequeño)
-    final todosParaFavoritos = await _localDb.getAllContactos();
-    final favoritos = todosParaFavoritos.where((c) => favIds.contains(c.id)).toList();
-    // Cargar solo la primera página para la lista
-    final totalContactos = await _localDb.countContactos(
-      categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
-      provincia: _provinciaFiltro,
-      municipio: _municipioFiltro,
-      soloReportados: _categoriaFiltro == '_reportados',
-    );
-    final primeraPagena = await _localDb.getContactosPaginados(
-      offset: 0,
-      limit: _pageSize,
-      categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
-      provincia: _provinciaFiltro,
-      municipio: _municipioFiltro,
-      soloReportados: _categoriaFiltro == '_reportados',
-    );
+    // Cargar solo los favoritos por ID (query eficiente)
+    final favoritos = favIds.isNotEmpty
+        ? await _localDb.getContactosPorIds(favIds)
+        : <Contacto>[];
+    // Cargar primera página
+    final totalContactos = await _localDb.countContactos();
+    final primeraPagena = await _localDb.getContactosPaginados(offset: 0, limit: _pageSize);
     setState(() {
       _totalContactos = totalContactos;
       _visibles = primeraPagena;
