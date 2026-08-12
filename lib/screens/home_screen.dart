@@ -92,22 +92,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _cargarContactos() async {
     setState(() => _cargando = true);
-    _ultimaSync = await _localDb.getUltimaSincronizacion();
-    final favIds = await _localDb.getFavoritosIds();
-    // Cargar solo los favoritos por ID (query eficiente)
-    final favoritos = favIds.isNotEmpty
-        ? await _localDb.getContactosPorIds(favIds)
-        : <Contacto>[];
-    // Cargar primera página
-    final totalContactos = await _localDb.countContactos();
-    final primeraPagena = await _localDb.getContactosPaginados(offset: 0, limit: _pageSize);
-    setState(() {
-      _totalContactos = totalContactos;
-      _visibles = primeraPagena;
-      _favoritos = favoritos;
-      _paginaActual = 1;
-      _cargando = false;
-    });
+    try {
+      _ultimaSync = await _localDb.getUltimaSincronizacion();
+      final favIds = await _localDb.getFavoritosIds();
+      final favoritos = favIds.isNotEmpty
+          ? await _localDb.getContactosPorIds(favIds)
+          : <Contacto>[];
+      final totalContactos = await _localDb.countContactos();
+      final primeraPagena = await _localDb.getContactosPaginados(offset: 0, limit: _pageSize);
+      if (mounted) {
+        setState(() {
+          _totalContactos = totalContactos;
+          _visibles = primeraPagena;
+          _favoritos = favoritos;
+          _paginaActual = 1;
+        });
+      }
+    } catch (e) {
+      debugPrint('_cargarContactos error: $e');
+    } finally {
+      if (mounted) setState(() => _cargando = false);
+    }
   }
 
   Future<void> _resincronizarTodo() async {
@@ -216,38 +221,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final query = _searchController.text;
     setState(() => _cargando = true);
 
-    List<Contacto> resultado;
-    int total;
+    try {
+      List<Contacto> resultado;
+      int total;
 
-    if (query.isNotEmpty) {
-      resultado = await _localDb.buscarContactosPaginados(query, offset: 0, limit: _pageSize);
-      // Para el total en búsqueda hacemos count rápido
-      final todos = await _localDb.buscarContactos(query);
-      total = todos.length;
-    } else {
-      total = await _localDb.countContactos(
-        categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
-        provincia: _provinciaFiltro,
-        municipio: _municipioFiltro,
-        soloReportados: _categoriaFiltro == '_reportados',
-      );
-      resultado = await _localDb.getContactosPaginados(
-        offset: 0,
-        limit: _pageSize,
-        categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
-        provincia: _provinciaFiltro,
-        municipio: _municipioFiltro,
-        soloReportados: _categoriaFiltro == '_reportados',
-      );
-    }
+      if (query.isNotEmpty) {
+        resultado = await _localDb.buscarContactosPaginados(query, offset: 0, limit: _pageSize);
+        final todos = await _localDb.buscarContactos(query);
+        total = todos.length;
+      } else {
+        total = await _localDb.countContactos(
+          categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
+          provincia: _provinciaFiltro,
+          municipio: _municipioFiltro,
+          soloReportados: _categoriaFiltro == '_reportados',
+        );
+        resultado = await _localDb.getContactosPaginados(
+          offset: 0,
+          limit: _pageSize,
+          categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
+          provincia: _provinciaFiltro,
+          municipio: _municipioFiltro,
+          soloReportados: _categoriaFiltro == '_reportados',
+        );
+      }
 
-    if (mounted) {
-      setState(() {
-        _visibles = resultado;
-        _totalContactos = total;
-        _paginaActual = 1;
-        _cargando = false;
-      });
+      if (mounted) {
+        setState(() {
+          _visibles = resultado;
+          _totalContactos = total;
+          _paginaActual = 1;
+        });
+      }
+    } catch (e) {
+      debugPrint('_recargarPagina error: $e');
+    } finally {
+      if (mounted) setState(() => _cargando = false);
     }
   }
 
