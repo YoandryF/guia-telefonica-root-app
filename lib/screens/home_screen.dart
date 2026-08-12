@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../models/contacto.dart';
 import '../services/local_database_service.dart';
 import '../services/supabase_service.dart';
@@ -39,9 +37,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   String? _municipioFiltro;
   bool _cargando = true;
   bool _online = true;
-  bool _escuchando = false;
-  bool _vozDisponible = true;
-  static const _speechChannel = MethodChannel('guia_telefonica/speech');
   DateTime? _ultimaSync;
   int _filtrosActivos = 0;
   static const _pageSize = 50;
@@ -60,7 +55,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _cargarCategorias();
     _sincronizar();
     _verificarActualizacion();
-    _initVoz();
     _scrollController.addListener(_onScroll);
     Connectivity().onConnectivityChanged.listen((result) {
       setState(() => _online = result != ConnectivityResult.none);
@@ -73,15 +67,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
-  }
-
-  Future<void> _initVoz() async {
-    try {
-      final available = await _speechChannel.invokeMethod('isAvailable');
-      _vozDisponible = available == true;
-    } catch (_) {
-      _vozDisponible = false;
-    }
   }
 
   Future<void> _verificarActualizacion() async {
@@ -272,52 +257,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   void _filtrar(String query) {
     _aplicarFiltros();
-  }
-
-  Future<void> _toggleVoz() async {
-    if (!_vozDisponible) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('⚠️ Reconocimiento de voz no disponible en este dispositivo')),
-        );
-      }
-      return;
-    }
-
-    // Pedir permiso de micrófono
-    final micStatus = await Permission.microphone.request();
-    if (!micStatus.isGranted) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('⚠️ Permiso de micrófono denegado')),
-        );
-      }
-      return;
-    }
-
-    setState(() => _escuchando = true);
-
-    try {
-      final result = await _speechChannel.invokeMethod('recognize', {
-        'locale': 'es',
-        'prompt': '🎤 Habla ahora...',
-      });
-
-      if (mounted) {
-        setState(() => _escuchando = false);
-        if (result != null && result.toString().isNotEmpty) {
-          _searchController.text = result.toString();
-          _aplicarFiltros();
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _escuchando = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ Error: $e')),
-        );
-      }
-    }
   }
 
   void _mostrarFiltros() {
@@ -595,53 +534,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               decoration: InputDecoration(
                 hintText: 'Buscar contacto...',
                 prefixIcon: const Icon(Icons.search),
-                suffixIcon: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_searchController.text.isNotEmpty)
-                      IconButton(
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
                         icon: const Icon(Icons.clear),
                         onPressed: () {
                           _searchController.clear();
                           _aplicarFiltros();
                         },
-                      ),
-                    IconButton(
-                      icon: Icon(
-                        _escuchando ? Icons.mic : Icons.mic_none,
-                        color: _escuchando ? Colors.red : null,
-                      ),
-                      onPressed: _toggleVoz,
-                    ),
-                  ],
-                ),
+                      )
+                    : null,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 filled: true,
               ),
               onChanged: _filtrar,
             ),
           ),
-
-          // Indicador de escucha
-          if (_escuchando)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  const SizedBox(
-                    width: 16, height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.red),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text('Escuchando...', style: TextStyle(color: Colors.red, fontSize: 12)),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: _toggleVoz,
-                    child: const Text('Detener', style: TextStyle(fontSize: 12)),
-                  ),
-                ],
-              ),
-            ),
 
           // Chips de filtros activos
           if (_filtrosActivos > 0)
