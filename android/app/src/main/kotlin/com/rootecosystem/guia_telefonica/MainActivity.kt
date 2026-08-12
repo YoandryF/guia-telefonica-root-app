@@ -18,6 +18,10 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : FlutterActivity() {
     private val INSTALLER_CHANNEL = "guia_telefonica/installer"
@@ -68,25 +72,35 @@ class MainActivity : FlutterActivity() {
                     val apellido = call.argument<String>("apellido") ?: ""
                     val telefono = call.argument<String>("telefono") ?: ""
                     val reportado = call.argument<Boolean>("reportado") ?: false
-                    val res = syncContact(nombre, apellido, telefono, reportado)
-                    result.success(res)
+                    CoroutineScope(Dispatchers.IO).launch {
+                        val res = syncContact(nombre, apellido, telefono, reportado)
+                        withContext(Dispatchers.Main) { result.success(res) }
+                    }
                 }
                 "removeGuiaContacts" -> {
-                    val count = removeGuiaContacts()
-                    result.success(count)
+                    CoroutineScope(Dispatchers.IO).launch {
+                        val count = removeGuiaContacts()
+                        withContext(Dispatchers.Main) { result.success(count) }
+                    }
                 }
                 "removeContact" -> {
                     val telefono = call.argument<String>("telefono") ?: ""
-                    val removed = removeContactByPhone(telefono)
-                    result.success(removed)
+                    CoroutineScope(Dispatchers.IO).launch {
+                        val removed = removeContactByPhone(telefono)
+                        withContext(Dispatchers.Main) { result.success(removed) }
+                    }
                 }
                 "getPhoneContacts" -> {
-                    val contacts = getPhoneContacts()
-                    result.success(contacts)
+                    CoroutineScope(Dispatchers.IO).launch {
+                        val contacts = getPhoneContacts()
+                        withContext(Dispatchers.Main) { result.success(contacts) }
+                    }
                 }
                 "getGuiaContactsInAgenda" -> {
-                    val contacts = getGuiaContactsInAgenda()
-                    result.success(contacts)
+                    CoroutineScope(Dispatchers.IO).launch {
+                        val contacts = getGuiaContactsInAgenda()
+                        withContext(Dispatchers.Main) { result.success(contacts) }
+                    }
                 }
                 "openContact" -> {
                     val phone = call.argument<String>("phone") ?: ""
