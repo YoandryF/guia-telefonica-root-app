@@ -275,6 +275,15 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
     final descripcionCtrl = TextEditingController();
     File? evidencia;
 
+    // Preguntas guiadas por motivo
+    Map<String, List<String>> preguntasGuiadas = {
+      'spam': ['¿Cuántas veces te llamó?', '¿Qué tipo de spam? (publicidad, estafa, acoso)', '¿A qué hora llamó?'],
+      'no_existe': ['¿Desde cuándo no existe este número?', '¿Intentaste llamar y qué pasó?'],
+      'numero_incorrecto': ['¿Cuál es el error? (nombre incorrecto, número cambiado)', '¿A quién pertenece realmente?'],
+      'duplicado': ['¿Con qué número está duplicado?'],
+      'otro': ['Describe el problema con el mayor detalle posible'],
+    };
+
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -291,12 +300,33 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
                   onChanged: (v) => setDialogState(() => motivoSeleccionado = v),
                   dense: true,
                 )),
+                // Preguntas guiadas según motivo
+                if (motivoSeleccionado != null && preguntasGuiadas.containsKey(motivoSeleccionado)) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.07),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('💡 Ayúdanos con más detalles:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.orange)),
+                        const SizedBox(height: 4),
+                        ...preguntasGuiadas[motivoSeleccionado]!.map((p) =>
+                          Text('• $p', style: const TextStyle(fontSize: 11, color: Colors.grey))
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 TextField(
                   controller: descripcionCtrl,
-                  decoration: const InputDecoration(
-                    hintText: 'Descripción (opcional)',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    hintText: motivoSeleccionado != null ? 'Describe el problema...' : 'Descripción (opcional)',
+                    border: const OutlineInputBorder(),
                     isDense: true,
                   ),
                   maxLines: 2,

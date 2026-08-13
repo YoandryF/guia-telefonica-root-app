@@ -15,6 +15,7 @@ import 'contacto_detalle_screen.dart';
 import 'escanear_agenda_screen.dart';
 import 'lista_negra_screen.dart';
 import 'login_admin_screen.dart';
+import 'mis_reportes_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -497,6 +498,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 case 'listanegra':
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const ListaNegraScreen()));
                   break;
+                case 'misreportes':
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const MisReportesScreen()));
+                  break;
                 case 'about':
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const AcercaDeScreen()));
                   break;
@@ -507,6 +511,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const PopupMenuItem(value: 'resync', child: ListTile(leading: Icon(Icons.cloud_download), title: Text('Resincronizar todo'), dense: true)),
               const PopupMenuItem(value: 'scan', child: ListTile(leading: Icon(Icons.security), title: Text('Escanear agenda'), dense: true)),
               const PopupMenuItem(value: 'listanegra', child: ListTile(leading: Icon(Icons.warning_amber, color: Colors.red), title: Text('Lista Negra'), dense: true)),
+              const PopupMenuItem(value: 'misreportes', child: ListTile(leading: Icon(Icons.flag, color: Colors.orange), title: Text('Mis Reportes'), dense: true)),
               const PopupMenuItem(value: 'update', child: ListTile(leading: Icon(Icons.system_update), title: Text('Buscar actualización'), dense: true)),
               const PopupMenuItem(value: 'admin', child: ListTile(leading: Icon(Icons.admin_panel_settings), title: Text('Panel Admin'), dense: true)),
               const PopupMenuItem(value: 'about', child: ListTile(leading: Icon(Icons.info_outline), title: Text('Acerca de'), dense: true)),

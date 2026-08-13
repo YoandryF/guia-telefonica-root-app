@@ -380,12 +380,86 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(response);
   }
 
-  Future<void> desestimarReporte(String reporteId) async {
-    await _client.from('reportes').update({'estado': 'resuelto', 'fecha_resolucion': DateTime.now().toIso8601String()}).eq('id', reporteId);
+  Future<void> aprobarReporte(String reporteId, {String? notaAdmin}) async {
+    await _client.from('reportes').update({
+      'estado': 'revisado',
+      'fecha_resolucion': DateTime.now().toIso8601String(),
+      if (notaAdmin != null && notaAdmin.isNotEmpty) 'nota_admin': notaAdmin,
+    }).eq('id', reporteId);
   }
 
-  Future<void> aprobarReporte(String reporteId) async {
-    await _client.from('reportes').update({'estado': 'revisado', 'fecha_resolucion': DateTime.now().toIso8601String()}).eq('id', reporteId);
+  Future<void> desestimarReporte(String reporteId, {String? notaAdmin}) async {
+    await _client.from('reportes').update({
+      'estado': 'resuelto',
+      'fecha_resolucion': DateTime.now().toIso8601String(),
+      if (notaAdmin != null && notaAdmin.isNotEmpty) 'nota_admin': notaAdmin,
+    }).eq('id', reporteId);
+  }
+
+  Future<void> aprobarReportesBulk(List<String> ids) async {
+    for (final id in ids) {
+      await _client.from('reportes').update({
+        'estado': 'revisado',
+        'fecha_resolucion': DateTime.now().toIso8601String(),
+      }).eq('id', id);
+    }
+  }
+
+  Future<void> desestimarReportesBulk(List<String> ids) async {
+    for (final id in ids) {
+      await _client.from('reportes').update({
+        'estado': 'resuelto',
+        'fecha_resolucion': DateTime.now().toIso8601String(),
+      }).eq('id', id);
+    }
+  }
+
+  Future<Map<String, dynamic>> getStatsReportador(String identificador) async {
+    try {
+      final result = await _client.rpc('get_stats_reportador', params: {'p_identificador': identificador});
+      return Map<String, dynamic>.from(result);
+    } catch (_) {
+      return {'total': 0, 'aprobados': 0, 'desestimados': 0, 'pendientes': 0, 'tasa_aprobacion': 0};
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getMisReportes(String telegramUserId) async {
+    try {
+      final result = await _client.rpc('get_mis_reportes', params: {'p_telegram_user_id': telegramUserId});
+      return List<Map<String, dynamic>>.from(result);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<bool> cancelarMiReporte(String reporteId, String telegramUserId) async {
+    try {
+      final result = await _client
+          .from('reportes')
+          .delete()
+          .eq('id', reporteId)
+          .eq('reportado_por', telegramUserId)
+          .eq('estado', 'pendiente');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getReportesDeContacto(String contactoId, {
+    String? filtroMotivo,
+    String? filtroEstado,
+    bool soloConEvidencia = false,
+  }) async {
+    var query = _client
+        .from('reportes')
+        .select('*')
+        .eq('contacto_id', contactoId);
+    if (filtroMotivo != null) query = query.eq('motivo', filtroMotivo);
+    if (filtroEstado != null) query = query.eq('estado', filtroEstado);
+    if (soloConEvidencia) query = query.not('evidencia_msg_id', 'is', null);
+    final response = await query.order('evidencia_msg_id', ascending: false).order('fecha_reporte', ascending: false);
+    return List<Map<String, dynamic>>.from(response);
   }
 
   Future<List<Map<String, dynamic>>> getReportesResueltos() async {
@@ -405,15 +479,6 @@ class SupabaseService {
         .eq('estado', estado)
         .order('fecha_reporte', ascending: false)
         .limit(50);
-    return List<Map<String, dynamic>>.from(response);
-  }
-
-  Future<List<Map<String, dynamic>>> getReportesDeContacto(String contactoId) async {
-    final response = await _client
-        .from('reportes')
-        .select('*')
-        .eq('contacto_id', contactoId)
-        .order('fecha_reporte', ascending: false);
     return List<Map<String, dynamic>>.from(response);
   }
 
