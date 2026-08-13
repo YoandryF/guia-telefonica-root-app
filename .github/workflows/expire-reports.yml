@@ -9,30 +9,34 @@ jobs:
   expire:
     runs-on: ubuntu-latest
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://ntanwjuivejwxrpnmesk.supabase.co' }}
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       BOT_RENDER_URL: ${{ secrets.BOT_RENDER_URL }}
     steps:
       - name: Expire pending reports older than configured days
         run: |
-          curl -X POST "${SUPABASE_URL}/rest/v1/rpc/expirar_reportes" \
+          CLEAN_URL=$(echo "${SUPABASE_URL}" | tr -d '[:space:]')
+          curl -f -X POST "${CLEAN_URL}/rest/v1/rpc/expirar_reportes" \
             -H "apikey: ${SUPABASE_SERVICE_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
             -H "Content-Type: application/json"
 
       - name: Detect phone prefix patterns
         run: |
-          curl -X POST "${SUPABASE_URL}/rest/v1/rpc/detectar_patrones_prefijo" \
+          CLEAN_URL=$(echo "${SUPABASE_URL}" | tr -d '[:space:]')
+          curl -f -X POST "${CLEAN_URL}/rest/v1/rpc/detectar_patrones_prefijo" \
             -H "apikey: ${SUPABASE_SERVICE_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
             -H "Content-Type: application/json"
 
       - name: Cleanup old evidence from Telegram group
+        if: ${{ env.BOT_RENDER_URL != '' }}
         run: |
           curl -X POST "${BOT_RENDER_URL}/cleanup-evidencias" \
             -H "Content-Type: application/json" || true
 
       - name: Alert admin if too many pending reports
+        if: ${{ env.BOT_RENDER_URL != '' }}
         run: |
           curl -X POST "${BOT_RENDER_URL}/alerta-pendientes" \
             -H "Content-Type: application/json" || true
