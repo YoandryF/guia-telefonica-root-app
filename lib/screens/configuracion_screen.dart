@@ -25,12 +25,16 @@ class _ConfiguracionScreenState extends State<ConfiguracionScreen> {
   Future<void> _editar(Map<String, dynamic> item) async {
     final ctrl = TextEditingController(text: item['valor']);
     final result = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(
-      title: Text(item['clave']),
-      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (item['descripcion'] != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(item['descripcion'], style: const TextStyle(fontSize: 12, color: Colors.grey))),
-        TextField(controller: ctrl, decoration: const InputDecoration(labelText: 'Valor', border: OutlineInputBorder()), autofocus: true),
-      ]),
-      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')), FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('Guardar'))],
+      title: Text(item['descripcion'] ?? item['clave']),
+      content: TextField(
+        controller: ctrl,
+        decoration: const InputDecoration(labelText: 'Valor', border: OutlineInputBorder()),
+        autofocus: true,
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('Guardar')),
+      ],
     ));
     if (result == null) return;
     await Supabase.instance.client.from('configuracion').update({'valor': result}).eq('clave', item['clave']);
@@ -47,8 +51,7 @@ class _ConfiguracionScreenState extends State<ConfiguracionScreen> {
         itemBuilder: (ctx, i) {
           final item = _config[i];
           return ListTile(
-            title: Text(item['clave'], style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-            subtitle: Text(item['descripcion'] ?? '', style: const TextStyle(fontSize: 11)),
+            title: Text(item['descripcion'] ?? item['clave'], style: const TextStyle(fontSize: 13)),
             trailing: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(color: Theme.of(context).colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
