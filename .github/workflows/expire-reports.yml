@@ -8,27 +8,31 @@ on:
 jobs:
   expire:
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      BOT_RENDER_URL: ${{ secrets.BOT_RENDER_URL }}
     steps:
       - name: Expire pending reports older than configured days
         run: |
-          curl -X POST '${{ secrets.SUPABASE_URL }}/rest/v1/rpc/expirar_reportes' \
-            -H 'apikey: ${{ secrets.SUPABASE_SERVICE_KEY }}' \
-            -H 'Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}' \
-            -H 'Content-Type: application/json'
+          curl -X POST "${SUPABASE_URL}/rest/v1/rpc/expirar_reportes" \
+            -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+            -H "Content-Type: application/json"
 
       - name: Detect phone prefix patterns
         run: |
-          curl -X POST '${{ secrets.SUPABASE_URL }}/rest/v1/rpc/detectar_patrones_prefijo' \
-            -H 'apikey: ${{ secrets.SUPABASE_SERVICE_KEY }}' \
-            -H 'Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}' \
-            -H 'Content-Type: application/json'
+          curl -X POST "${SUPABASE_URL}/rest/v1/rpc/detectar_patrones_prefijo" \
+            -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+            -H "Content-Type: application/json"
 
       - name: Cleanup old evidence from Telegram group
         run: |
-          curl -X POST '${{ secrets.BOT_RENDER_URL }}/cleanup-evidencias' \
-            -H 'Content-Type: application/json' || true
+          curl -X POST "${BOT_RENDER_URL}/cleanup-evidencias" \
+            -H "Content-Type: application/json" || true
 
       - name: Alert admin if too many pending reports
         run: |
-          curl -X POST '${{ secrets.BOT_RENDER_URL }}/alerta-pendientes' \
-            -H 'Content-Type: application/json' || true
+          curl -X POST "${BOT_RENDER_URL}/alerta-pendientes" \
+            -H "Content-Type: application/json" || true
