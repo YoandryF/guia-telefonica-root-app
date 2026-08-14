@@ -2,6 +2,10 @@
 
 | Versión | Fecha | Cambios principales |
 |---|---|---|
+| v3.9.0 | 2026-08-12 | Swipe reportes, bulk actions, filtros avanzados, priorización, notas admin, stats reportador, mis reportes, reporte guiado, notif TG, config sin nombre variable |
+| v3.8.2 | 2026-08-12 | Fix filtros persisten al refrescar, íconos consistentes admin, botón duplicado categorías |
+| v3.8.1 | 2026-08-12 | Fix spinner eterno, proguard Play Core, referencias eliminadas |
+| v3.8.0 | 2026-08-12 | Fix crash identificador (Coroutines IO), paginación SQL, FTS5, R8, minSdk 23, permisos, splash, deps |
 | v3.7.2 | 2026-08-12 | Fix crash identificador de llamadas (batch query en vez de N+1) |
 | v3.7.1 | 2026-08-12 | Rediseño sync agenda: muestra contactos en agenda, progreso real al eliminar, conteo correcto |
 | v3.7.0 | 2026-08-12 | Launcher icon mejorado, sanitizer caracteres, escanear con progreso y conteo correcto, eliminar con indicador batch, removida voz |
