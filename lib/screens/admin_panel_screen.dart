@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/contacto.dart';
 import '../services/supabase_service.dart';
 import 'admins_screen.dart';
+import 'analytics_screen.dart';
 import 'auditoria_screen.dart';
 import 'categorias_admin_screen.dart';
 import 'configuracion_screen.dart';
@@ -207,6 +208,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DashboardScreen())),
                     icon: const Icon(Icons.bar_chart, color: Colors.indigo),
                     label: const Text('Dashboard métricas'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen())),
+                    icon: const Icon(Icons.analytics, color: Colors.deepPurple),
+                    label: const Text('Analytics de usuarios'),
                   ),
 
                   const SizedBox(height: 24),

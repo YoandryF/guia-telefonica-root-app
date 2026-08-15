@@ -636,3 +636,14 @@ class SupabaseService {
     await _client.from('admins').update({'activo': false}).eq('email', email);
   }
 }
+
+  // === ANALYTICS ADMIN ===
+
+  Future<Map<String, dynamic>> getAnalyticsAdmin() async {
+    try {
+      final r = await _client.rpc('get_analytics_admin');
+      return Map<String, dynamic>.from(r as Map);
+    } catch (e) {
+      return {};
+    }
+  }
