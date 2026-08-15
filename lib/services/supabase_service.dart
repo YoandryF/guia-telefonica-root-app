@@ -635,7 +635,6 @@ class SupabaseService {
   Future<void> desactivarAdmin(String email) async {
     await _client.from('admins').update({'activo': false}).eq('email', email);
   }
-}
 
   // === ANALYTICS ADMIN ===
 
@@ -647,3 +646,4 @@ class SupabaseService {
       return {};
     }
   }
+}
