@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/invitacion_service.dart';
 import '../services/telegram_verification_service.dart';
 
 /// Muestra el modal de verificación por Telegram.
@@ -114,6 +115,8 @@ class _VerificacionTelegramSheetState extends State<_VerificacionTelegramSheet> 
       switch (status.state) {
         case VerificationState.verificado:
           setState(() => _estado = _Estado.verificado);
+          // Hook referidos: si hay un código de invitación pendiente, registrar
+          _registrarReferidoSiAplica(status.identity!.userId);
           Future.delayed(const Duration(milliseconds: 800), () {
             if (mounted) Navigator.pop(context, status.identity);
           });
@@ -135,6 +138,17 @@ class _VerificacionTelegramSheetState extends State<_VerificacionTelegramSheet> 
           break;
       }
     });
+  }
+
+  /// Si hay un código de invitación pendiente (guardado por DeepLinkRouter),
+  /// lo registra en BD vinculando al nuevo usuario con su referidor.
+  Future<void> _registrarReferidoSiAplica(String referidoId) async {
+    final codigo = await InvitacionService.consumirCodigoPendiente();
+    if (codigo == null || codigo.isEmpty) return;
+    await InvitacionService.registrarReferido(
+      codigo: codigo,
+      referidoId: referidoId,
+    );
   }
 
   @override

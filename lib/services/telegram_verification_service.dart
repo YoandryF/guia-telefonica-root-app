@@ -124,6 +124,17 @@ class TelegramVerificationService {
     await prefs.remove(_keyTelegramUsername);
   }
 
+  /// Obtener identidad guardada localmente (método estático conveniente)
+  static Future<TelegramIdentity?> getIdentity() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString(_keyTelegramUserId);
+    if (userId == null || userId.isEmpty) return null;
+    return TelegramIdentity(
+      userId: userId,
+      username: prefs.getString(_keyTelegramUsername),
+    );
+  }
+
   Future<void> _guardarLocal(TelegramIdentity identity) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyTelegramUserId, identity.userId);
