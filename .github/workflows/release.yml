@@ -1,9 +1,14 @@
 name: Build & Release APK
 
+# Disparado automáticamente cuando se hace push a main
+# con un commit que empieza con "bump:" — ej: "bump: v4.1.0+52"
+# La versión se lee del pubspec.yaml — nunca hay desfase.
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+    paths:
+      - 'pubspec.yaml'
 
 permissions:
   contents: write
@@ -11,56 +16,90 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      # ── Leer versión del pubspec.yaml ──────────────────────
+      - name: Read version from pubspec.yaml
+        id: pubspec
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
+          # version tiene formato X.Y.Z+build — extraer solo X.Y.Z
+          SEMVER=$(echo "$VERSION" | cut -d'+' -f1)
+          TAG="v$SEMVER"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "semver=$SEMVER"   >> $GITHUB_OUTPUT
+          echo "tag=$TAG"         >> $GITHUB_OUTPUT
+          echo "Versión detectada: $VERSION → tag: $TAG"
+
+      # ── Verificar que el tag no exista ya ──────────────────
+      - name: Check tag does not exist
+        id: check_tag
+        run: |
+          TAG=${{ steps.pubspec.outputs.tag }}
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag $TAG ya existe — saltando release"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag $TAG es nuevo — procediendo con release"
+          fi
+
+      # ── Setup Java ─────────────────────────────────────────
       - name: Setup Java
+        if: steps.check_tag.outputs.exists == 'false'
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
+      # ── Setup Flutter ──────────────────────────────────────
       - name: Setup Flutter
+        if: steps.check_tag.outputs.exists == 'false'
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.1'
           channel: 'stable'
 
+      # ── Keystore ───────────────────────────────────────────
       - name: Decode Keystore
+        if: steps.check_tag.outputs.exists == 'false'
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/keystore.jks
 
       - name: Create key.properties
+        if: steps.check_tag.outputs.exists == 'false'
         run: |
           echo "storePassword=${{ secrets.STORE_PASSWORD }}" > android/key.properties
-          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
-          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android/key.properties
-          echo "storeFile=$(pwd)/android/app/keystore.jks" >> android/key.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}"    >> android/key.properties
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}"          >> android/key.properties
+          echo "storeFile=$(pwd)/android/app/keystore.jks"  >> android/key.properties
 
+      # ── Build ──────────────────────────────────────────────
       - name: Get dependencies
+        if: steps.check_tag.outputs.exists == 'false'
         run: flutter pub get
 
       - name: Build APK
-        run: flutter build apk --release --dart-define=TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }} --dart-define=TELEGRAM_EVIDENCE_GROUP=${{ secrets.TELEGRAM_EVIDENCE_GROUP }}
-
-      - name: Get version from tag
-        id: version
-        run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
-      - name: Get tag message
-        id: tag_msg
+        if: steps.check_tag.outputs.exists == 'false'
         run: |
-          git fetch --tags --force
-          TAG_NAME=${GITHUB_REF#refs/tags/}
-          TAG_MSG=$(git for-each-ref --format='%(contents)' refs/tags/$TAG_NAME)
-          echo "body<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAG_MSG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          flutter build apk --release \
+            --dart-define=TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }} \
+            --dart-define=TELEGRAM_EVIDENCE_GROUP=${{ secrets.TELEGRAM_EVIDENCE_GROUP }}
 
-      - name: Create Release & Upload APK
+      # ── Crear tag desde el pubspec y publicar release ──────
+      - name: Create tag & Release
+        if: steps.check_tag.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ steps.version.outputs.tag }}
-          body: ${{ steps.tag_msg.outputs.body }}
+          tag_name: ${{ steps.pubspec.outputs.tag }}
+          name: ${{ steps.pubspec.outputs.tag }}
+          body: |
+            Release ${{ steps.pubspec.outputs.tag }}
+            Versión interna: ${{ steps.pubspec.outputs.version }}
           files: build/app/outputs/flutter-apk/app-release.apk
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
