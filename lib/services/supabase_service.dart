@@ -509,6 +509,7 @@ class SupabaseService {
         'contacto_id': contactoId,
         'dispositivo_id': dispositivoId,
         'avalado_por': telegramUserId,
+        // estado: 'pendiente' por defecto — admin debe aprobar
       });
       return {'error': null};
     } catch (e) {
@@ -517,9 +518,45 @@ class SupabaseService {
     }
   }
 
+  /// Solo avales aprobados por el admin se muestran al usuario
   Future<int> getConteoAvales(String contactoId) async {
-    final r = await _client.from('avales').select().eq('contacto_id', contactoId).count(CountOption.exact);
+    final r = await _client
+        .from('avales')
+        .select()
+        .eq('contacto_id', contactoId)
+        .eq('estado', 'aprobado')
+        .count(CountOption.exact);
     return r.count;
+  }
+
+  /// Panel admin: avales pendientes de revisión
+  Future<List<Map<String, dynamic>>> getAvalesPendientes() async {
+    final r = await _client
+        .from('avales')
+        .select('*, contactos(nombre, apellido, telefono)')
+        .eq('estado', 'pendiente')
+        .order('fecha');
+    return List<Map<String, dynamic>>.from(r);
+  }
+
+  /// Admin aprueba o rechaza un aval
+  Future<Map<String, dynamic>> resolverAval(
+    String avalId,
+    String estado, { // 'aprobado' | 'rechazado'
+    String? revisadoPor,
+    String? nota,
+  }) async {
+    try {
+      await _client.from('avales').update({
+        'estado': estado,
+        'revisado_por': revisadoPor,
+        'fecha_revision': DateTime.now().toIso8601String(),
+        if (nota != null) 'nota': nota,
+      }).eq('id', avalId);
+      return {'error': null};
+    } catch (e) {
+      return {'error': e.toString()};
+    }
   }
 
   // === RECLAMOS (derecho a réplica) ===
