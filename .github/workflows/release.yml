@@ -1,8 +1,17 @@
 name: Build & Release APK
 
 # Disparado automáticamente cuando se hace push a main
-# con un commit que empieza con "bump:" — ej: "bump: v4.1.0+52"
+# y el pubspec.yaml cambió.
 # La versión se lee del pubspec.yaml — nunca hay desfase.
+# El changelog de la release es el body del commit de bump.
+#
+# Flujo de uso:
+#   1. Actualiza version en pubspec.yaml
+#   2. git commit -m "bump: vX.Y.Z+build\n\n- feat: ...\n- fix: ..."
+#   3. git push origin main
+#   → El workflow compila, crea el tag vX.Y.Z y publica la release
+#      con el body del commit como changelog.
+
 on:
   push:
     branches:
@@ -27,13 +36,12 @@ jobs:
         id: pubspec
         run: |
           VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | tr -d ' ')
-          # version tiene formato X.Y.Z+build — extraer solo X.Y.Z
           SEMVER=$(echo "$VERSION" | cut -d'+' -f1)
           TAG="v$SEMVER"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "semver=$SEMVER"   >> $GITHUB_OUTPUT
           echo "tag=$TAG"         >> $GITHUB_OUTPUT
-          echo "Versión detectada: $VERSION → tag: $TAG"
+          echo "Versión: $VERSION → tag: $TAG"
 
       # ── Verificar que el tag no exista ya ──────────────────
       - name: Check tag does not exist
@@ -45,8 +53,23 @@ jobs:
             echo "Tag $TAG ya existe — saltando release"
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "Tag $TAG es nuevo — procediendo con release"
+            echo "Tag $TAG es nuevo — procediendo"
           fi
+
+      # ── Leer changelog del body del commit ────────────────
+      # El body es todo lo que está después de la primera línea del mensaje.
+      # Si el commit es solo una línea, el body queda vacío y se usa un default.
+      - name: Get changelog from commit body
+        if: steps.check_tag.outputs.exists == 'false'
+        id: changelog
+        run: |
+          BODY=$(git log -1 --format='%b')
+          if [ -z "$BODY" ]; then
+            BODY="Release ${{ steps.pubspec.outputs.tag }}"
+          fi
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$BODY"     >> $GITHUB_OUTPUT
+          echo "EOF"       >> $GITHUB_OUTPUT
 
       # ── Setup Java ─────────────────────────────────────────
       - name: Setup Java
@@ -89,16 +112,14 @@ jobs:
             --dart-define=TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }} \
             --dart-define=TELEGRAM_EVIDENCE_GROUP=${{ secrets.TELEGRAM_EVIDENCE_GROUP }}
 
-      # ── Crear tag desde el pubspec y publicar release ──────
+      # ── Crear tag y publicar release ───────────────────────
       - name: Create tag & Release
         if: steps.check_tag.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.pubspec.outputs.tag }}
           name: ${{ steps.pubspec.outputs.tag }}
-          body: |
-            Release ${{ steps.pubspec.outputs.tag }}
-            Versión interna: ${{ steps.pubspec.outputs.version }}
+          body: ${{ steps.changelog.outputs.body }}
           files: build/app/outputs/flutter-apk/app-release.apk
           make_latest: true
         env:
