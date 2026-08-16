@@ -165,16 +165,26 @@ class _UsuariosAdminScreenState extends State<UsuariosAdminScreen> {
 
   Widget _usuarioCard(BuildContext ctx, dynamic item) {
     final user = item is Map ? item : <String, dynamic>{};
-    final nombre = user['nombre_display']?.toString() ?? '';
-    final username = user['username']?.toString() ?? '';
-    final telegramId = user['telegram_user_id']?.toString() ?? '';
+
+    // La RPC get_usuarios_admin devuelve: chat_id, primer_nombre, ultimo_nombre, nombre_usuario
+    final chatId = user['chat_id']?.toString() ?? '';
+    final primerNombre = user['primer_nombre']?.toString() ?? '';
+    final ultimoNombre = user['ultimo_nombre']?.toString() ?? '';
+    final username = user['nombre_usuario']?.toString() ?? '';
+    final nombreCompleto = '${primerNombre} ${ultimoNombre}'.trim();
+
     final reportes = (user['total_reportes'] as num?)?.toInt() ?? 0;
     final avales = (user['total_avales'] as num?)?.toInt() ?? 0;
     final contactos = (user['total_contactos'] as num?)?.toInt() ?? 0;
-    final tieneRestriccion = user['tiene_restriccion'] == true;
+    final trustPct = (user['trust_pct'] as num?)?.toDouble();
+    final restricciones = (user['restricciones_activas'] as num?)?.toInt() ?? 0;
+    final baneado = user['baneado'] == true;
 
-    final displayName = nombre.isNotEmpty ? nombre : (username.isNotEmpty ? '@$username' : telegramId);
+    final displayName = nombreCompleto.isNotEmpty
+        ? nombreCompleto
+        : (username.isNotEmpty ? '@$username' : chatId);
     final inicial = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
+    final tieneRestriccion = restricciones > 0 || baneado;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -192,7 +202,7 @@ class _UsuariosAdminScreenState extends State<UsuariosAdminScreen> {
               child: Text(displayName, maxLines: 1, overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w500)),
             ),
-            if (tieneRestriccion)
+            if (baneado)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
@@ -200,43 +210,67 @@ class _UsuariosAdminScreenState extends State<UsuariosAdminScreen> {
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: Colors.red.shade200),
                 ),
-                child: const Text('🚫', style: TextStyle(fontSize: 10)),
+                child: const Text('🚫 Baneado', style: TextStyle(fontSize: 10, color: Colors.red)),
+              )
+            else if (tieneRestriccion)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Text('⚠️ $restricciones restricc.', style: const TextStyle(fontSize: 10, color: Colors.orange)),
               ),
           ],
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (username.isNotEmpty && nombre.isNotEmpty)
-              Text('@$username', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            if (username.isNotEmpty && nombreCompleto.isNotEmpty)
+              Text('@$username  •  ID: $chatId',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            if (username.isEmpty && nombreCompleto.isNotEmpty)
+              Text('ID: $chatId', style: const TextStyle(fontSize: 11, color: Colors.grey)),
             const SizedBox(height: 4),
             Row(
               children: [
-                _miniStat('📣', reportes),
+                _miniStat('📣', reportes, tooltip: 'Reportes'),
                 const SizedBox(width: 12),
-                _miniStat('👍', avales),
+                _miniStat('👍', avales, tooltip: 'Avales'),
                 const SizedBox(width: 12),
-                _miniStat('📇', contactos),
+                _miniStat('📇', contactos, tooltip: 'Contactos'),
+                if (trustPct != null) ...[
+                  const SizedBox(width: 12),
+                  Text('⭐ ${trustPct.toStringAsFixed(0)}%',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: trustPct >= 70 ? Colors.green : trustPct >= 40 ? Colors.orange : Colors.red,
+                      )),
+                ],
               ],
             ),
           ],
         ),
         onTap: () => Navigator.push(
           ctx,
-          MaterialPageRoute(builder: (_) => UsuarioDetalleScreen(telegramUserId: telegramId)),
+          MaterialPageRoute(builder: (_) => UsuarioDetalleScreen(telegramUserId: chatId)),
         ).then((_) => _cargar()),
       ),
     );
   }
 
-  Widget _miniStat(String emoji, int valor) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(emoji, style: const TextStyle(fontSize: 11)),
-        const SizedBox(width: 2),
-        Text('$valor', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-      ],
+  Widget _miniStat(String emoji, int valor, {String? tooltip}) {
+    return Tooltip(
+      message: tooltip ?? '',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 11)),
+          const SizedBox(width: 2),
+          Text('$valor', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        ],
+      ),
     );
   }
 }
