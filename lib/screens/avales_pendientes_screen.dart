@@ -40,16 +40,25 @@ class _AvalesPendientesScreenState extends State<AvalesPendientesScreen> {
 
   Future<void> _resolver(String avalId, String nuevoEstado) async {
     try {
-      await Supabase.instance.client.from('avales').update({
-        'estado': nuevoEstado,
-        'revisado_por': Supabase.instance.client.auth.currentUser?.email ?? 'admin',
-        'fecha_revision': DateTime.now().toIso8601String(),
-      }).eq('id', avalId);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(nuevoEstado == 'aprobado' ? '✅ Aval aprobado' : '❌ Aval rechazado'),
-        ));
-        _cargar();
+      final r = await Supabase.instance.client.rpc('resolver_aval', params: {
+        'p_aval_id':      avalId,
+        'p_estado':       nuevoEstado,
+        'p_revisado_por': Supabase.instance.client.auth.currentUser?.email ?? 'admin',
+      });
+      final result = r as Map?;
+      if (result?['ok'] == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(nuevoEstado == 'aprobado' ? '✅ Aval aprobado' : '❌ Aval rechazado'),
+          ));
+          _cargar();
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: ${result?['error'] ?? 'desconocido'}')),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {

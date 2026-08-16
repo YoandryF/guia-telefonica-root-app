@@ -678,20 +678,19 @@ class _ListaAvales extends StatelessWidget {
 
   Future<void> _resolverAval(BuildContext ctx, String avalId, String nuevoEstado) async {
     try {
-      await Supabase.instance.client
-          .from('avales')
-          .update({
-            'estado': nuevoEstado,
-            'revisado_por': Supabase.instance.client.auth.currentUser?.email ?? 'admin',
-            'fecha_revision': DateTime.now().toIso8601String(),
-          })
-          .eq('id', avalId);
-
+      final r = await Supabase.instance.client.rpc('resolver_aval', params: {
+        'p_aval_id':      avalId,
+        'p_estado':       nuevoEstado,
+        'p_revisado_por': Supabase.instance.client.auth.currentUser?.email ?? 'admin',
+      });
+      final result = r as Map?;
       if (ctx.mounted) {
         ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
-          content: Text(nuevoEstado == 'aprobado' ? '✅ Aval aprobado' : '❌ Aval rechazado'),
+          content: Text(result?['ok'] == true
+              ? (nuevoEstado == 'aprobado' ? '✅ Aval aprobado' : '❌ Aval rechazado')
+              : 'Error: ${result?['error'] ?? 'desconocido'}'),
         ));
-        onRefresh();
+        if (result?['ok'] == true) onRefresh();
       }
     } catch (e) {
       if (ctx.mounted) {

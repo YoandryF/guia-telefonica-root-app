@@ -56,12 +56,15 @@ class _InvitacionScreenState extends State<InvitacionScreen> {
 
   void _compartir() {
     if (_codigo == null) return;
-    final link = 'guia://invitacion/$_codigo';
+    // Link de Telegram: cuando el usuario lo toca, abre el bot con el código
+    // El bot registra al referido y muestra la bienvenida + link a la app
+    final linkTelegram = 'https://t.me/GuiaTelefonicaRootBot?start=invitacion_$_codigo';
     Share.share(
       '📱 Únete a la Guía Telefónica Colaborativa\n\n'
       'Usa mi código de invitación: $_codigo\n\n'
-      'Descarga la app: https://github.com/YoandryF/guia-telefonica-root-app/releases/latest\n\n'
-      'O abre directamente: $link',
+      '👇 Toca el link para unirte:\n$linkTelegram\n\n'
+      'O descarga la app directamente:\n'
+      'https://github.com/YoandryF/guia-telefonica-root-app/releases/latest',
       subject: 'Invitación a Guía Telefónica',
     );
   }
