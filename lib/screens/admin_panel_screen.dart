@@ -3,6 +3,7 @@ import '../models/contacto.dart';
 import '../services/supabase_service.dart';
 import 'admins_screen.dart';
 import 'analytics_screen.dart';
+import 'avales_pendientes_screen.dart';
 import 'auditoria_screen.dart';
 import 'categorias_admin_screen.dart';
 import 'configuracion_screen.dart';
@@ -185,6 +186,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportesAdminScreen())),
                     icon: const Icon(Icons.report_problem, color: Colors.orange),
                     label: const Text('Gestionar reportes'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AvalesPendientesScreen())),
+                    icon: const Icon(Icons.thumb_up, color: Colors.green),
+                    label: const Text('Avales pendientes'),
                   ),
                   const SizedBox(height: 8),
                   OutlinedButton.icon(

@@ -108,53 +108,62 @@ class _UsuarioDetalleScreenState extends State<UsuarioDetalleScreen>
     final inicial   = _nombreDisplay.isNotEmpty ? _nombreDisplay[0].toUpperCase() : '?';
     final baneado   = _stats['baneado'] == true;
 
-    return Container(
-      padding: const EdgeInsets.all(20),
-      color: Colors.teal.shade50,
-      child: Column(
-        children: [
-          CircleAvatar(
-            radius: 36,
-            backgroundColor: baneado ? Colors.red.shade200 : Colors.teal.shade200,
-            child: Text(inicial, style: const TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
-          const SizedBox(height: 10),
-          Text(_nombreDisplay, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          if (username.isNotEmpty)
-            Text('@$username', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
-          const SizedBox(height: 4),
-          SelectableText(chatId,
-              style: const TextStyle(fontSize: 12, fontFamily: 'monospace', color: Colors.grey)),
-          if (baneado)
-            Container(
-              margin: const EdgeInsets.only(top: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.red.shade100,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text('🚫 Baneado', style: TextStyle(color: Colors.red, fontSize: 12)),
+    return Builder(builder: (ctx) {
+      final scheme = Theme.of(ctx).colorScheme;
+      return Container(
+        padding: const EdgeInsets.all(20),
+        // Usa surface del tema — funciona en claro y oscuro
+        color: scheme.surfaceContainerHighest,
+        child: Column(
+          children: [
+            CircleAvatar(
+              radius: 36,
+              backgroundColor: baneado ? scheme.error : scheme.primary,
+              child: Text(inicial, style: TextStyle(fontSize: 28, color: scheme.onPrimary, fontWeight: FontWeight.bold)),
             ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (fechaReg.isNotEmpty) ...[
-                const Icon(Icons.calendar_today, size: 12, color: Colors.grey),
-                const SizedBox(width: 4),
-                Text('Reg: $fechaReg', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            const SizedBox(height: 10),
+            Text(_nombreDisplay,
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: scheme.onSurface)),
+            if (username.isNotEmpty)
+              Text('@$username',
+                  style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
+            const SizedBox(height: 4),
+            SelectableText(chatId,
+                style: TextStyle(fontSize: 12, fontFamily: 'monospace', color: scheme.onSurfaceVariant)),
+            if (baneado)
+              Container(
+                margin: const EdgeInsets.only(top: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: scheme.errorContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text('🚫 Baneado',
+                    style: TextStyle(color: scheme.onErrorContainer, fontSize: 12)),
+              ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (fechaReg.isNotEmpty) ...[
+                  Icon(Icons.calendar_today, size: 12, color: scheme.onSurfaceVariant),
+                  const SizedBox(width: 4),
+                  Text('Reg: $fechaReg',
+                      style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
                 const SizedBox(width: 16),
               ],
               if (ultimaInt.isNotEmpty) ...[
-                const Icon(Icons.access_time, size: 12, color: Colors.grey),
+                Icon(Icons.access_time, size: 12, color: scheme.onSurfaceVariant),
                 const SizedBox(width: 4),
-                Text('Últ: $ultimaInt', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                Text('Últ: $ultimaInt',
+                    style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
               ],
             ],
           ),
         ],
       ),
     );
+    }); // Builder
   }
 
   // ─── Stats interactivos ───────────────────────────────────
@@ -498,21 +507,107 @@ class _ListaReportes extends StatelessWidget {
         ],
       ),
       trailing: Text(fecha, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-      onTap: telefono.isNotEmpty ? () => _abrirContacto(ctx, telefono) : null,
+      // Tap → bottom sheet con detalle del reporte + botón al contacto
+      onTap: () => _mostrarDetalleReporte(ctx, r),
     );
   }
 
-  Future<void> _abrirContacto(BuildContext ctx, String telefono) async {
-    final data = await Supabase.instance.client
-        .from('contactos')
-        .select('*, categorias(nombre, icono)')
-        .eq('telefono', telefono)
-        .maybeSingle();
-    if (data == null || !ctx.mounted) return;
-    Navigator.push(ctx, MaterialPageRoute(
-      builder: (_) => ContactoDetalleScreen(contacto: Contacto.fromJson(data)),
-    ));
+  void _mostrarDetalleReporte(BuildContext ctx, Map r) {
+    final estado   = r['estado']?.toString() ?? '';
+    final contacto = r['contacto_nombre']?.toString() ?? '—';
+    final telefono = r['contacto_telefono']?.toString() ?? '';
+    final motivo   = r['motivo']?.toString() ?? '';
+    final fecha    = (r['fecha_reporte']?.toString() ?? '').split('T').first;
+    final nota     = r['nota_admin']?.toString() ?? '';
+    final estadoLabel = estado == 'revisado' ? '✅ Aprobado' : estado == 'resuelto' ? '❌ Desestimado' : '⏳ Pendiente';
+    final estadoColor = estado == 'revisado' ? Colors.green : estado == 'resuelto' ? Colors.red : Colors.orange;
+
+    showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Título
+            Row(
+              children: [
+                const Text('Detalle del reporte', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: estadoColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: estadoColor.withOpacity(0.4)),
+                  ),
+                  child: Text(estadoLabel, style: TextStyle(color: estadoColor, fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+            const Divider(height: 24),
+            // Datos
+            _filaDetalle('👤 Contacto', contacto),
+            _filaDetalle('📱 Teléfono', telefono),
+            _filaDetalle('⚠️ Motivo', motivo),
+            _filaDetalle('📅 Fecha', fecha),
+            if (nota.isNotEmpty) _filaDetalle('📝 Nota admin', nota),
+            const SizedBox(height: 20),
+            // Botón ir al contacto
+            if (telefono.isNotEmpty)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  icon: const Icon(Icons.person_search, size: 18),
+                  label: Text('Ver contacto: $contacto'),
+                  onPressed: () async {
+                    Navigator.pop(ctx); // cerrar sheet
+                    final data = await Supabase.instance.client
+                        .from('contactos')
+                        .select('*, categorias(nombre, icono)')
+                        .eq('telefono', telefono)
+                        .maybeSingle();
+                    if (data == null || !ctx.mounted) return;
+                    Navigator.push(ctx, MaterialPageRoute(
+                      builder: (_) => ContactoDetalleScreen(contacto: Contacto.fromJson(data)),
+                    ));
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
+
+  Widget _filaDetalle(String label, String valor) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 110,
+          child: Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        ),
+        Expanded(
+          child: Text(valor, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+        ),
+      ],
+    ),
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
