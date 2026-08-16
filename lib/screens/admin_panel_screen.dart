@@ -11,6 +11,7 @@ import 'dashboard_screen.dart';
 import 'exportar_screen.dart';
 import 'importar_screen.dart';
 import 'reportes_admin_screen.dart';
+import 'usuarios_admin_screen.dart';
 
 class AdminPanelScreen extends StatefulWidget {
   const AdminPanelScreen({super.key});
@@ -214,6 +215,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen())),
                     icon: const Icon(Icons.analytics, color: Colors.deepPurple),
                     label: const Text('Analytics de usuarios'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UsuariosAdminScreen())),
+                    icon: const Icon(Icons.people, color: Colors.teal),
+                    label: const Text('Gestión de usuarios'),
                   ),
 
                   const SizedBox(height: 24),

@@ -646,4 +646,57 @@ class SupabaseService {
       return {};
     }
   }
+
+  // === USUARIOS ADMIN ===
+
+  Future<Map<String, dynamic>> getUsuariosAdmin({String query = '', int offset = 0, int limit = 20}) async {
+    try {
+      final r = await _client.rpc('get_usuarios_admin', params: {
+        'p_query': query, 'p_offset': offset, 'p_limit': limit,
+      });
+      return Map<String, dynamic>.from(r as Map);
+    } catch (e) { return {'total': 0, 'usuarios': []}; }
+  }
+
+  Future<Map<String, dynamic>> getUsuario360(String telegramUserId) async {
+    try {
+      final r = await _client.rpc('get_usuario_360', params: {'p_telegram_user_id': telegramUserId});
+      return Map<String, dynamic>.from(r as Map);
+    } catch (e) { return {}; }
+  }
+
+  Future<Map<String, dynamic>> getDashboardStats() async {
+    try {
+      final r = await _client.rpc('get_dashboard_stats');
+      return Map<String, dynamic>.from(r as Map);
+    } catch (e) { return {}; }
+  }
+
+  Future<Map<String, dynamic>> agregarRestriccion({
+    required String telegramUserId,
+    required String funcionalidad,
+    required String motivo,
+    required String creadoPor,
+    DateTime? fechaFin,
+  }) async {
+    try {
+      await _client.from('restricciones_usuario').upsert({
+        'telegram_user_id': telegramUserId,
+        'funcionalidad': funcionalidad,
+        'motivo': motivo,
+        'creado_por': creadoPor,
+        'activo': true,
+        if (fechaFin != null) 'fecha_fin': fechaFin.toIso8601String(),
+      }, onConflict: 'telegram_user_id,funcionalidad');
+      return {'error': null};
+    } catch (e) { return {'error': e.toString()}; }
+  }
+
+  Future<Map<String, dynamic>> quitarRestriccion(String restriccionId) async {
+    try {
+      await _client.from('restricciones_usuario')
+        .update({'activo': false}).eq('id', restriccionId);
+      return {'error': null};
+    } catch (e) { return {'error': e.toString()}; }
+  }
 }

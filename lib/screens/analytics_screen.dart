@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/contacto.dart';
 import '../screens/contacto_detalle_screen.dart';
+import '../screens/usuario_detalle_screen.dart';
 import '../services/supabase_service.dart';
 
 class AnalyticsScreen extends StatefulWidget {
@@ -109,7 +110,12 @@ class _TabReportadoresState extends State<_TabReportadores> {
   String _query = '';
 
   List<dynamic> get _filtrados => widget.items
-      .where((r) => (r['identificador'] ?? '').toString().toLowerCase().contains(_query.toLowerCase()))
+      .where((r) {
+        final q = _query.toLowerCase();
+        return (r['identificador'] ?? '').toString().toLowerCase().contains(q) ||
+            (r['nombre_display'] ?? '').toString().toLowerCase().contains(q) ||
+            (r['username'] ?? '').toString().toLowerCase().contains(q);
+      })
       .toList();
 
   int get _maxTotal => widget.items.isEmpty ? 1 :
@@ -128,15 +134,14 @@ class _TabReportadoresState extends State<_TabReportadores> {
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (ctx, i) {
               final item = _filtrados[i] as Map;
-              final id = item['identificador']?.toString() ?? '—';
               final total = (item['total'] as num?)?.toInt() ?? 0;
               final aprobados = (item['aprobados'] as num?)?.toInt() ?? 0;
               final pendientes = (item['pendientes'] as num?)?.toInt() ?? 0;
               final pct = total > 0 ? aprobados / total : 0.0;
               return ListTile(
                 leading: _Puesto(_filtrados.indexOf(item) + 1),
-                title: Text(_truncar(id),
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+                title: Text(_displayName(item),
+                    style: const TextStyle(fontSize: 13)),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -159,20 +164,12 @@ class _TabReportadoresState extends State<_TabReportadores> {
                         style: const TextStyle(fontSize: 10, color: Colors.grey)),
                   ],
                 ),
-                onTap: () => _verReportes(ctx, id),
+                onTap: () => _abrirPerfil360(ctx, item['identificador']?.toString() ?? ''),
               );
             },
           ),
         ),
       ],
-    );
-  }
-
-  void _verReportes(BuildContext ctx, String identificador) {
-    showModalBottomSheet(
-      context: ctx,
-      isScrollControlled: true,
-      builder: (_) => _ReportesUsuarioSheet(identificador: identificador),
     );
   }
 }
@@ -273,7 +270,12 @@ class _TabFallasState extends State<_TabFallas> {
   String _query = '';
 
   List<dynamic> get _filtrados => widget.items
-      .where((r) => (r['identificador'] ?? '').toString().toLowerCase().contains(_query.toLowerCase()))
+      .where((r) {
+        final q = _query.toLowerCase();
+        return (r['identificador'] ?? '').toString().toLowerCase().contains(q) ||
+            (r['nombre_display'] ?? '').toString().toLowerCase().contains(q) ||
+            (r['username'] ?? '').toString().toLowerCase().contains(q);
+      })
       .toList();
 
   int get _maxFallas => widget.items.isEmpty ? 1 :
@@ -292,15 +294,14 @@ class _TabFallasState extends State<_TabFallas> {
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (ctx, i) {
               final item = _filtrados[i] as Map;
-              final id = item['identificador']?.toString() ?? '—';
               final desestimados = (item['desestimados'] as num?)?.toInt() ?? 0;
               final aprobados = (item['aprobados'] as num?)?.toInt() ?? 0;
               final pct = item['pct_fallas']?.toString() ?? '0';
               final pctVal = double.tryParse(pct) ?? 0;
               return ListTile(
                 leading: _Puesto(i + 1),
-                title: Text(_truncar(id),
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+                title: Text(_displayName(item),
+                    style: const TextStyle(fontSize: 13)),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -315,20 +316,12 @@ class _TabFallasState extends State<_TabFallas> {
                   ],
                 ),
                 trailing: _Badge('$pct%', pctVal > 70 ? Colors.red : Colors.deepOrange),
-                onTap: () => _verReportes(ctx, id),
+                onTap: () => _abrirPerfil360(ctx, item['identificador']?.toString() ?? ''),
               );
             },
           ),
         ),
       ],
-    );
-  }
-
-  void _verReportes(BuildContext ctx, String identificador) {
-    showModalBottomSheet(
-      context: ctx,
-      isScrollControlled: true,
-      builder: (_) => _ReportesUsuarioSheet(identificador: identificador),
     );
   }
 }
@@ -347,7 +340,12 @@ class _TabAvaldoresState extends State<_TabAvaladores> {
   String _query = '';
 
   List<dynamic> get _filtrados => widget.items
-      .where((r) => (r['identificador'] ?? '').toString().toLowerCase().contains(_query.toLowerCase()))
+      .where((r) {
+        final q = _query.toLowerCase();
+        return (r['identificador'] ?? '').toString().toLowerCase().contains(q) ||
+            (r['nombre_display'] ?? '').toString().toLowerCase().contains(q) ||
+            (r['username'] ?? '').toString().toLowerCase().contains(q);
+      })
       .toList();
 
   int get _maxTotal => widget.items.isEmpty ? 1 :
@@ -366,15 +364,14 @@ class _TabAvaldoresState extends State<_TabAvaladores> {
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (ctx, i) {
               final item = _filtrados[i] as Map;
-              final id = item['identificador']?.toString() ?? '—';
               final total = (item['total_avales'] as num?)?.toInt() ?? 0;
               final aprobados = (item['aprobados'] as num?)?.toInt() ?? 0;
               final pendientes = (item['pendientes'] as num?)?.toInt() ?? 0;
               final rechazados = (item['rechazados'] as num?)?.toInt() ?? 0;
               return ListTile(
                 leading: _Puesto(i + 1),
-                title: Text(_truncar(id),
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+                title: Text(_displayName(item),
+                    style: const TextStyle(fontSize: 13)),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -390,6 +387,7 @@ class _TabAvaldoresState extends State<_TabAvaladores> {
                   ],
                 ),
                 trailing: _Badge('$total', Colors.green),
+                onTap: () => _abrirPerfil360(ctx, item['identificador']?.toString() ?? ''),
               );
             },
           ),
@@ -414,7 +412,12 @@ class _TabTrustState extends State<_TabTrust> {
   String _query = '';
 
   List<dynamic> _filtrar(List<dynamic> lista) => lista
-      .where((r) => (r['identificador'] ?? '').toString().toLowerCase().contains(_query.toLowerCase()))
+      .where((r) {
+        final q = _query.toLowerCase();
+        return (r['identificador'] ?? '').toString().toLowerCase().contains(q) ||
+            (r['nombre_display'] ?? '').toString().toLowerCase().contains(q) ||
+            (r['username'] ?? '').toString().toLowerCase().contains(q);
+      })
       .toList();
 
   @override
@@ -426,33 +429,25 @@ class _TabTrustState extends State<_TabTrust> {
           child: ListView(
             padding: const EdgeInsets.only(bottom: 16),
             children: [
-              _SeccionTitulo('⭐ Mejor trust score'),
+              const _SeccionTitulo('⭐ Mejor trust score'),
               if (_filtrar(widget.mejores).isEmpty)
                 const _Vacio('Sin datos (mín. 3 reportes)')
               else
                 ..._filtrar(widget.mejores).asMap().entries.map((e) =>
                     _TrustTile(item: e.value, puesto: e.key + 1, esMejor: true,
-                        onTap: () => _verReportes(context, e.value['identificador']?.toString() ?? ''))),
+                        onTap: () => _abrirPerfil360(context, e.value['identificador']?.toString() ?? ''))),
               const SizedBox(height: 16),
-              _SeccionTitulo('💀 Peor trust score'),
+              const _SeccionTitulo('💀 Peor trust score'),
               if (_filtrar(widget.peores).isEmpty)
                 const _Vacio('Sin datos (mín. 3 reportes)')
               else
                 ..._filtrar(widget.peores).asMap().entries.map((e) =>
                     _TrustTile(item: e.value, puesto: e.key + 1, esMejor: false,
-                        onTap: () => _verReportes(context, e.value['identificador']?.toString() ?? ''))),
+                        onTap: () => _abrirPerfil360(context, e.value['identificador']?.toString() ?? ''))),
             ],
           ),
         ),
       ],
-    );
-  }
-
-  void _verReportes(BuildContext ctx, String identificador) {
-    showModalBottomSheet(
-      context: ctx,
-      isScrollControlled: true,
-      builder: (_) => _ReportesUsuarioSheet(identificador: identificador),
     );
   }
 }
@@ -466,14 +461,13 @@ class _TrustTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final id = item['identificador']?.toString() ?? '—';
     final trust = (item['trust_pct'] as num?)?.toDouble() ?? 0;
     final total = (item['total'] as num?)?.toInt() ?? 0;
     final color = esMejor ? Colors.green : Colors.red;
     return ListTile(
       dense: true,
       leading: _Puesto(puesto),
-      title: Text(_truncar(id), style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+      title: Text(_displayName(item), style: const TextStyle(fontSize: 13)),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -736,5 +730,28 @@ class _Vacio extends StatelessWidget {
   );
 }
 
+// ============================================================
+// Helpers globales del archivo
+// ============================================================
+
 String _truncar(String s) =>
     s.length > 20 ? '${s.substring(0, 8)}…${s.substring(s.length - 6)}' : s;
+
+String _displayName(Map item) {
+  final nombre = item['nombre_display']?.toString() ?? '';
+  final username = item['username']?.toString() ?? '';
+  final id = item['identificador']?.toString() ?? '—';
+  if (nombre.isNotEmpty) return nombre;
+  if (username.isNotEmpty) return '@$username';
+  return _truncar(id);
+}
+
+void _abrirPerfil360(BuildContext ctx, String identificador) {
+  if (identificador.isEmpty) return;
+  Navigator.push(
+    ctx,
+    MaterialPageRoute(
+      builder: (_) => UsuarioDetalleScreen(telegramUserId: identificador),
+    ),
+  );
+}
