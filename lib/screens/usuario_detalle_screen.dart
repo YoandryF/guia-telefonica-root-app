@@ -68,36 +68,33 @@ class _UsuarioDetalleScreenState extends State<UsuarioDetalleScreen>
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _cargar),
         ],
+        bottom: _cargando ? null : TabBar(
+          controller: _tabs,
+          tabs: [
+            Tab(text: '📣 Reportes (${_reportes.length})'),
+            Tab(text: '👍 Avales (${_avales.length})'),
+            Tab(text: '📇 Contactos (${_contactos.length})'),
+          ],
+        ),
       ),
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _cargar,
-              child: NestedScrollView(
-                headerSliverBuilder: (_, __) => [
-                  SliverToBoxAdapter(child: _buildHeader()),
-                  SliverToBoxAdapter(child: _buildStatsInteractivos()),
-                  SliverToBoxAdapter(child: _buildRestricciones()),
-                  SliverToBoxAdapter(
-                    child: TabBar(
-                      controller: _tabs,
-                      tabs: [
-                        Tab(text: '📣 Reportes (${_reportes.length})'),
-                        Tab(text: '👍 Avales (${_avales.length})'),
-                        Tab(text: '📇 Contactos (${_contactos.length})'),
-                      ],
-                    ),
-                  ),
-                ],
-                body: TabBarView(
-                  controller: _tabs,
-                  children: [
-                    _ListaReportes(reportes: _reportes, telegramUserId: widget.telegramUserId),
-                    _ListaAvales(avales: _avales),
-                    _ListaContactos(contactos: _contactos),
-                  ],
+          : TabBarView(
+              controller: _tabs,
+              children: [
+                _ScrollConHeader(
+                  header: Column(children: [_buildHeader(), _buildStatsInteractivos(), _buildRestricciones()]),
+                  child: _ListaReportes(reportes: _reportes, telegramUserId: widget.telegramUserId),
                 ),
-              ),
+                _ScrollConHeader(
+                  header: Column(children: [_buildHeader(), _buildStatsInteractivos(), _buildRestricciones()]),
+                  child: _ListaAvales(avales: _avales, telegramUserId: widget.telegramUserId, onRefresh: _cargar),
+                ),
+                _ScrollConHeader(
+                  header: Column(children: [_buildHeader(), _buildStatsInteractivos(), _buildRestricciones()]),
+                  child: _ListaContactos(contactos: _contactos),
+                ),
+              ],
             ),
     );
   }
@@ -437,6 +434,28 @@ class _UsuarioDetalleScreenState extends State<UsuarioDetalleScreen>
 }
 
 // ─────────────────────────────────────────────────────────────
+// Wrapper: header + lista en un solo scroll
+// ─────────────────────────────────────────────────────────────
+class _ScrollConHeader extends StatelessWidget {
+  final Widget header;
+  final Widget child;
+  const _ScrollConHeader({required this.header, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(child: header),
+        SliverFillRemaining(
+          hasScrollBody: true,
+          child: child,
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // Lista de reportes (tab)
 // ─────────────────────────────────────────────────────────────
 class _ListaReportes extends StatelessWidget {
@@ -497,11 +516,13 @@ class _ListaReportes extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Lista de avales (tab)
+// Lista de avales (tab) — con gestión admin inline
 // ─────────────────────────────────────────────────────────────
 class _ListaAvales extends StatelessWidget {
   final List<dynamic> avales;
-  const _ListaAvales({required this.avales});
+  final String telegramUserId;
+  final VoidCallback onRefresh;
+  const _ListaAvales({required this.avales, required this.telegramUserId, required this.onRefresh});
 
   @override
   Widget build(BuildContext context) {
@@ -521,16 +542,67 @@ class _ListaAvales extends StatelessWidget {
     final telefono = a['contacto_telefono']?.toString() ?? '';
     final estado   = a['estado']?.toString() ?? '';
     final fecha    = (a['fecha']?.toString() ?? '').split('T').first;
+    final avalId   = a['id']?.toString() ?? '';
     final icon = estado == 'aprobado' ? '✅' : estado == 'rechazado' ? '❌' : '⏳';
+    final esPendiente = estado == 'pendiente';
 
     return ListTile(
       dense: true,
       leading: Text(icon, style: const TextStyle(fontSize: 18)),
       title: Text(contacto, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
       subtitle: Text('📱 $telefono  •  $estado', style: const TextStyle(fontSize: 11)),
-      trailing: Text(fecha, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+      trailing: esPendiente
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(fecha, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                const SizedBox(width: 8),
+                // Aprobar
+                IconButton(
+                  icon: const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  tooltip: 'Aprobar',
+                  onPressed: () => _resolverAval(ctx, avalId, 'aprobado'),
+                ),
+                const SizedBox(width: 4),
+                // Rechazar
+                IconButton(
+                  icon: const Icon(Icons.cancel, color: Colors.red, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  tooltip: 'Rechazar',
+                  onPressed: () => _resolverAval(ctx, avalId, 'rechazado'),
+                ),
+              ],
+            )
+          : Text(fecha, style: const TextStyle(fontSize: 10, color: Colors.grey)),
       onTap: telefono.isNotEmpty ? () => _abrirContacto(ctx, telefono) : null,
     );
+  }
+
+  Future<void> _resolverAval(BuildContext ctx, String avalId, String nuevoEstado) async {
+    try {
+      await Supabase.instance.client
+          .from('avales')
+          .update({
+            'estado': nuevoEstado,
+            'revisado_por': Supabase.instance.client.auth.currentUser?.email ?? 'admin',
+            'fecha_revision': DateTime.now().toIso8601String(),
+          })
+          .eq('id', avalId);
+
+      if (ctx.mounted) {
+        ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+          content: Text(nuevoEstado == 'aprobado' ? '✅ Aval aprobado' : '❌ Aval rechazado'),
+        ));
+        onRefresh();
+      }
+    } catch (e) {
+      if (ctx.mounted) {
+        ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
   }
 
   Future<void> _abrirContacto(BuildContext ctx, String telefono) async {
