@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/import_service.dart';
+import 'errores_import_screen.dart';
 
 class ImportarScreen extends StatefulWidget {
   const ImportarScreen({super.key});
@@ -213,10 +214,37 @@ class _ImportarScreenState extends State<ImportarScreen> with WidgetsBindingObse
                     ),
                   ],
                 ]))),
-                // Lista de errores si hay
+                // Lista de errores si hay — navegar a pantalla de edición
                 if (_resultado!.registrosConError.isNotEmpty) ...[
                   const SizedBox(height: 12),
-                  _ErroresCard(errores: _resultado!.registrosConError),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final guardados = await Navigator.push<int>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ErroresImportScreen(
+                            errores: List.from(_resultado!.registrosConError),
+                          ),
+                        ),
+                      );
+                      if (guardados != null && guardados > 0 && mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('✅ $guardados contactos adicionales aprobados'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.edit, color: Colors.orange),
+                    label: Text(
+                      '⚠️ ${_resultado!.registrosConError.length} errores — Revisar y corregir',
+                      style: const TextStyle(color: Colors.orange),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.orange),
+                    ),
+                  ),
                 ],
               ],
 
@@ -276,91 +304,3 @@ class _StatsRow extends StatelessWidget {
   }
 }
 
-class _ErroresCard extends StatefulWidget {
-  final List<Map<String, String>> errores;
-  const _ErroresCard({required this.errores});
-
-  @override
-  State<_ErroresCard> createState() => _ErroresCardState();
-}
-
-class _ErroresCardState extends State<_ErroresCard> {
-  bool _expandido = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: Colors.red.withOpacity(0.05),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header colapsable
-          InkWell(
-            onTap: () => setState(() => _expandido = !_expandido),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  const Icon(Icons.error_outline, color: Colors.red, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '${widget.errores.length} registros con error',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.red,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                  Icon(
-                    _expandido ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.red,
-                    size: 18,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_expandido) ...[
-            const Divider(height: 1),
-            // Mostrar hasta 100 errores
-            ...widget.errores.take(100).map((e) {
-              final nombre   = e['nombre']   ?? '';
-              final apellido = e['apellido'] ?? '';
-              final telefono = e['telefono'] ?? '';
-              final motivo   = e['_motivo']  ?? 'Error desconocido';
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '$nombre $apellido'.trim().isNotEmpty
-                          ? '$nombre $apellido'
-                          : telefono.isNotEmpty ? telefono : 'Registro sin datos',
-                      style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
-                    ),
-                    Text(
-                      motivo,
-                      style: const TextStyle(fontSize: 11, color: Colors.red),
-                    ),
-                    const Divider(height: 8),
-                  ],
-                ),
-              );
-            }),
-            if (widget.errores.length > 100)
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  '... y ${widget.errores.length - 100} errores más',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ),
-          ],
-        ],
-      ),
-    );
-  }
-}
