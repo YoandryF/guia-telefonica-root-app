@@ -21,6 +21,8 @@ class _ImportarScreenState extends State<ImportarScreen> with WidgetsBindingObse
   String _status = '';
   int _chunkFallido = 0;
   DateTime? _inicioImport;
+  // Contador actualizable de errores restantes
+  int _erroresRestantes = 0;
 
   @override
   void initState() {
@@ -88,6 +90,8 @@ class _ImportarScreenState extends State<ImportarScreen> with WidgetsBindingObse
         _progreso = result.totalChunks > 0 ? result.chunkActual / result.totalChunks : 0;
         if (result.completado) {
           _status = '✅ Importación completada';
+          // Inicializar contador de errores restantes
+          _erroresRestantes = result.registrosConError.length;
         } else if (result.errorDetalle != null) {
           _status = '⚠️ ${result.errorDetalle}';
           _chunkFallido = result.chunkActual;
@@ -215,7 +219,7 @@ class _ImportarScreenState extends State<ImportarScreen> with WidgetsBindingObse
                   ],
                 ]))),
                 // Lista de errores si hay — navegar a pantalla de edición
-                if (_resultado!.registrosConError.isNotEmpty) ...[
+                if (_erroresRestantes > 0) ...[
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     onPressed: () async {
@@ -228,6 +232,10 @@ class _ImportarScreenState extends State<ImportarScreen> with WidgetsBindingObse
                         ),
                       );
                       if (guardados != null && guardados > 0 && mounted) {
+                        setState(() {
+                          _erroresRestantes -= guardados;
+                          if (_erroresRestantes < 0) _erroresRestantes = 0;
+                        });
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('✅ $guardados contactos adicionales aprobados'),
@@ -238,7 +246,7 @@ class _ImportarScreenState extends State<ImportarScreen> with WidgetsBindingObse
                     },
                     icon: const Icon(Icons.edit, color: Colors.orange),
                     label: Text(
-                      '⚠️ ${_resultado!.registrosConError.length} errores — Revisar y corregir',
+                      '⚠️ $_erroresRestantes errores — Revisar y corregir',
                       style: const TextStyle(color: Colors.orange),
                     ),
                     style: OutlinedButton.styleFrom(

@@ -132,22 +132,24 @@ class _ErroresImportScreenState extends State<ErroresImportScreen> {
 
       _guardados = _seleccionados.length;
 
-      // Eliminar los guardados de la lista
-      final indices = _seleccionados.toList()..sort((a, b) => b.compareTo(a));
-      for (final i in indices) {
-        _registros.removeAt(i);
-      }
-      _seleccionados.clear();
-      _todoSeleccionado = false;
-
+      // Eliminar los guardados de la lista DENTRO del setState para que Flutter redibuje
       if (mounted) {
+        setState(() {
+          final indices = _seleccionados.toList()..sort((a, b) => b.compareTo(a));
+          for (final i in indices) {
+            _registros.removeAt(i);
+          }
+          _seleccionados.clear();
+          _todoSeleccionado = false;
+          _guardando = false;
+        });
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('✅ $_guardados contactos registrados como aprobados'),
             backgroundColor: Colors.green,
           ),
         );
-        setState(() => _guardando = false);
 
         if (_registros.isEmpty) {
           Navigator.pop(context, _guardados);
