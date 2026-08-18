@@ -16,8 +16,20 @@ class ImportResult {
   final bool completado;
   final int chunkActual;
   final int totalChunks;
+  final List<Map<String, String>> registrosConError; // ← nuevo
 
-  ImportResult({this.procesados = 0, this.nuevos = 0, this.duplicados = 0, this.errores = 0, this.actualizados = 0, this.errorDetalle, this.completado = true, this.chunkActual = 0, this.totalChunks = 0});
+  ImportResult({
+    this.procesados = 0,
+    this.nuevos = 0,
+    this.duplicados = 0,
+    this.errores = 0,
+    this.actualizados = 0,
+    this.errorDetalle,
+    this.completado = true,
+    this.chunkActual = 0,
+    this.totalChunks = 0,
+    this.registrosConError = const [],
+  });
 }
 
 class ImportService {
@@ -63,6 +75,7 @@ class ImportService {
 
     int nuevos = 0, duplicados = 0, errores = 0, actualizados = 0;
     final client = Supabase.instance.client;
+    final List<Map<String, String>> registrosConError = []; // ← acumula errores
 
     if (desdeChunk > 0) {
       final prefs = await SharedPreferences.getInstance();
@@ -74,11 +87,25 @@ class ImportService {
 
     for (var i = desdeChunk; i < chunks.length; i++) {
       final chunk = chunks[i];
-      final batch = chunk.map((c) => Sanitizer.contacto(c)).where((c) =>
-        (c['nombre'] ?? '').length >= 2 &&
-        (c['apellido'] ?? '').length >= 2 &&
-        (c['telefono'] ?? '').length >= 5
-      ).map((c) {
+      final batch = chunk.map((c) => Sanitizer.contacto(c)).where((c) {
+        // Validar y registrar motivo de rechazo
+        final nombre = c['nombre'] ?? '';
+        final apellido = c['apellido'] ?? '';
+        final telefono = c['telefono'] ?? '';
+        if (nombre.length < 2) {
+          registrosConError.add({...c, '_motivo': 'Nombre muy corto: "$nombre"'});
+          return false;
+        }
+        if (apellido.length < 2) {
+          registrosConError.add({...c, '_motivo': 'Apellido muy corto: "$apellido"'});
+          return false;
+        }
+        if (telefono.length < 5) {
+          registrosConError.add({...c, '_motivo': 'Teléfono inválido: "$telefono"'});
+          return false;
+        }
+        return true;
+      }).map((c) {
         final estadoArchivo = c['estado']?.toLowerCase().trim();
         final estado = _estadosValidos.contains(estadoArchivo) ? estadoArchivo! : 'pendiente';
 
@@ -115,6 +142,7 @@ class ImportService {
           procesados: (i + 1) * _chunkSize > contactos.length ? contactos.length : (i + 1) * _chunkSize,
           nuevos: nuevos, duplicados: duplicados, errores: errores, actualizados: actualizados,
           completado: i == chunks.length - 1, chunkActual: i + 1, totalChunks: chunks.length,
+          registrosConError: List.from(registrosConError),
         );
         continue;
       }
@@ -195,11 +223,21 @@ class ImportService {
             nuevos: nuevos, duplicados: duplicados, errores: errores, actualizados: actualizados,
             errorDetalle: 'Error de conexión en chunk ${i + 1}/${chunks.length}. Puedes reintentar.',
             completado: false, chunkActual: i, totalChunks: chunks.length,
+            registrosConError: List.from(registrosConError),
           );
           return;
         } else {
           // Error desconocido — loguear y continuar
           errores += batch.length;
+          // Registrar cada item del batch como error con el motivo
+          for (final item in batch) {
+            registrosConError.add({
+              'nombre':   item['nombre']?.toString() ?? '',
+              'apellido': item['apellido']?.toString() ?? '',
+              'telefono': item['telefono']?.toString() ?? '',
+              '_motivo':  'Error BD: ${errStr.length > 100 ? errStr.substring(0, 100) : errStr}',
+            });
+          }
         }
       }
 
@@ -223,6 +261,7 @@ class ImportService {
         completado: i == chunks.length - 1,
         chunkActual: i + 1,
         totalChunks: chunks.length,
+        registrosConError: List.from(registrosConError),
       );
     }
 
