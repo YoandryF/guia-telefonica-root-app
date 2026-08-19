@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../models/contacto.dart';
 import '../providers/sync_provider.dart';
 import '../services/background_sync_service.dart';
@@ -66,6 +67,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       setState(() => _online = result != ConnectivityResult.none);
       if (_online) _sincronizar();
     });
+    // Pedir permiso de notificaciones (Android 13+) para el ForegroundService
+    WidgetsBinding.instance.addPostFrameCallback((_) => _pedirPermisoNotificaciones());
+  }
+
+  Future<void> _pedirPermisoNotificaciones() async {
+    try {
+      final status = await Permission.notification.status;
+      if (status.isDenied) {
+        await Permission.notification.request();
+      }
+    } catch (_) {
+      // permission_handler puede no tener notification en versiones viejas — ignorar
+    }
   }
 
   @override
@@ -149,14 +163,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final totalLocal  = await _localDb.countContactos();
       final desfase     = totalRemoto - totalLocal;
 
+      debugPrint('SYNC: remoto=$totalRemoto local=$totalLocal desfase=$desfase ultimaSync=$ultimaSync');
+
       if (desfase > 50 || ultimaSync == null) {
-        // Desfase grande — background service (no resetear _sincronizando aquí,
-        // el SyncBanner toma el control visual)
+        debugPrint('SYNC: iniciando background service (desfase grande o primera vez)');
         if (mounted) setState(() => _sincronizando = false);
         await BackgroundSyncService.iniciarSync(ref);
         return;
       }
 
+      debugPrint('SYNC: sync incremental (desfase=$desfase)');
       // Sync incremental rápida
       final nuevos = await _supabaseService.getContactosAprobadosDesde(ultimaSync);
       if (nuevos.isNotEmpty) await _localDb.sincronizarBatch(nuevos);

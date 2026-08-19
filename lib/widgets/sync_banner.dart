@@ -3,9 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/sync_provider.dart';
 import '../services/background_sync_service.dart';
 
-/// Banner persistente que aparece en la parte inferior de TODAS las pantallas
-/// mientras hay una sincronización en progreso o recién terminada.
-/// Se integra en el MaterialApp como overlay.
+/// Banner persistente en la parte inferior de TODAS las pantallas.
+/// Usa builder en MaterialApp — sobrevive a cualquier navegación.
+/// ExcludeFocus evita que el banner robe el foco y bloquee botones de hardware.
 class SyncBanner extends ConsumerWidget {
   final Widget child;
   const SyncBanner({super.key, required this.child});
@@ -14,7 +14,6 @@ class SyncBanner extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final sync = ref.watch(syncProvider);
 
-    // No mostrar nada en estado idle
     if (sync.estado == SyncEstado.idle) return child;
 
     return Stack(
@@ -24,7 +23,11 @@ class SyncBanner extends ConsumerWidget {
           left: 0,
           right: 0,
           bottom: 0,
-          child: _BannerContent(sync: sync),
+          // ExcludeFocus: el banner NUNCA roba el foco del árbol principal
+          // Esto previene que bloquee botones de hardware (volumen, back, etc.)
+          child: ExcludeFocus(
+            child: _BannerContent(sync: sync),
+          ),
         ),
       ],
     );
@@ -37,10 +40,9 @@ class _BannerContent extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final scheme   = Theme.of(context).colorScheme;
+    final scheme     = Theme.of(context).colorScheme;
     final enProgreso = sync.enProgreso;
 
-    // Color del banner según estado
     final bgColor = switch (sync.estado) {
       SyncEstado.completado => Colors.green.shade700,
       SyncEstado.error      => Colors.red.shade700,
@@ -50,6 +52,8 @@ class _BannerContent extends ConsumerWidget {
 
     return Material(
       elevation: 8,
+      // color transparent para que Material no intercepte eventos fuera del área visible
+      color: Colors.transparent,
       child: Container(
         color: bgColor,
         padding: EdgeInsets.only(
@@ -64,14 +68,11 @@ class _BannerContent extends ConsumerWidget {
           children: [
             Row(
               children: [
-                // Icono animado o estático según estado
                 if (enProgreso)
                   const SizedBox(
-                    width: 16,
-                    height: 16,
+                    width: 16, height: 16,
                     child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
+                      strokeWidth: 2, color: Colors.white,
                     ),
                   )
                 else
@@ -82,26 +83,20 @@ class _BannerContent extends ConsumerWidget {
                       SyncEstado.cancelado  => Icons.cancel,
                       _                     => Icons.sync,
                     },
-                    color: Colors.white,
-                    size: 16,
+                    color: Colors.white, size: 16,
                   ),
                 const SizedBox(width: 10),
-
-                // Mensaje
                 Expanded(
                   child: Text(
                     sync.mensajeProgreso,
                     style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
+                      color: Colors.white, fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-
-                // Botón cancelar (solo durante progreso)
                 if (enProgreso)
                   TextButton(
                     onPressed: () async {
@@ -133,7 +128,6 @@ class _BannerContent extends ConsumerWidget {
                     style: TextButton.styleFrom(foregroundColor: Colors.white),
                     child: const Text('Cancelar', style: TextStyle(fontSize: 12)),
                   )
-                // Botón cerrar (en estados finales)
                 else
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.white, size: 18),
@@ -143,8 +137,6 @@ class _BannerContent extends ConsumerWidget {
                   ),
               ],
             ),
-
-            // Barra de progreso (solo durante descarga)
             if (sync.estado == SyncEstado.descargando && sync.total > 0) ...[
               const SizedBox(height: 6),
               ClipRRect(

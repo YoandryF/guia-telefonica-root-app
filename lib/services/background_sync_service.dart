@@ -19,18 +19,21 @@ class BackgroundSyncService {
 
   // ─── Arrancar sync — recibe ref para actualizar Riverpod directamente ─
   static Future<void> iniciarSync(WidgetRef ref) async {
-    if (_running) return;
+    if (_running) {
+      debugPrint('BGSYNC: ya corriendo, ignorando');
+      return;
+    }
     _cancelRequested = false;
     _running = true;
+    debugPrint('BGSYNC: iniciando sync...');
 
-    // Intentar arrancar ForegroundService nativo (mantiene proceso vivo)
     try {
       await _syncChannel.invokeMethod('startSync');
-    } catch (_) {
-      // Sin ForegroundService la sync funciona igual, solo no sobrevive pantalla apagada
+      debugPrint('BGSYNC: ForegroundService arrancado');
+    } catch (e) {
+      debugPrint('BGSYNC: ForegroundService no disponible: $e');
     }
 
-    // Ejecutar sync — actualiza Riverpod directamente con ref
     await _ejecutarSync(ref);
   }
 

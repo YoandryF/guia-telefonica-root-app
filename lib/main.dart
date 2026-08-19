@@ -76,11 +76,12 @@ class _GuiaTelefonicaAppState extends ConsumerState<GuiaTelefonicaApp> {
         brightness: Brightness.dark,
       ),
       themeMode: themeMode,
-      // SyncServiceListener conecta el stream del background service con Riverpod
-      // SyncBanner muestra el progreso en TODAS las pantallas
-      home: SyncServiceListener(
+      home: const SplashScreen(),
+      // builder envuelve TODO el Navigator — el banner aparece en TODAS las pantallas
+      // sin importar la navegación
+      builder: (context, child) => SyncServiceListener(
         child: SyncBanner(
-          child: const SplashScreen(),
+          child: child ?? const SplashScreen(),
         ),
       ),
     );
