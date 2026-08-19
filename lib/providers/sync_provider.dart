@@ -12,6 +12,7 @@ class SyncState {
   final int pagina;
   final int totalPaginas;
   final String? errorMsg;
+  final int offsetGuardado; // ← para continuar desde donde falló
 
   const SyncState({
     this.estado = SyncEstado.idle,
@@ -20,12 +21,16 @@ class SyncState {
     this.pagina = 0,
     this.totalPaginas = 0,
     this.errorMsg,
+    this.offsetGuardado = 0,
   });
 
   bool get enProgreso =>
       estado == SyncEstado.preparando ||
       estado == SyncEstado.descargando ||
       estado == SyncEstado.guardando;
+
+  bool get puedeContinuar =>
+      estado == SyncEstado.error && offsetGuardado > 0;
 
   double get progreso => total > 0 ? (descargados / total).clamp(0.0, 1.0) : 0.0;
 
@@ -51,14 +56,16 @@ class SyncState {
     int? pagina,
     int? totalPaginas,
     String? errorMsg,
+    int? offsetGuardado,
   }) =>
       SyncState(
-        estado:       estado       ?? this.estado,
-        descargados:  descargados  ?? this.descargados,
-        total:        total        ?? this.total,
-        pagina:       pagina       ?? this.pagina,
-        totalPaginas: totalPaginas ?? this.totalPaginas,
-        errorMsg:     errorMsg     ?? this.errorMsg,
+        estado:         estado         ?? this.estado,
+        descargados:    descargados    ?? this.descargados,
+        total:          total          ?? this.total,
+        pagina:         pagina         ?? this.pagina,
+        totalPaginas:   totalPaginas   ?? this.totalPaginas,
+        errorMsg:       errorMsg       ?? this.errorMsg,
+        offsetGuardado: offsetGuardado ?? this.offsetGuardado,
       );
 }
 
@@ -92,8 +99,12 @@ class SyncNotifier extends StateNotifier<SyncState> {
     );
   }
 
-  void setError(String msg) {
-    state = state.copyWith(estado: SyncEstado.error, errorMsg: msg);
+  void setError(String msg, {int offsetGuardado = 0}) {
+    state = state.copyWith(
+      estado: SyncEstado.error,
+      errorMsg: msg,
+      offsetGuardado: offsetGuardado,
+    );
   }
 
   void setCancelado() {

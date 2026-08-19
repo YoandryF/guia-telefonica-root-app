@@ -67,8 +67,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       setState(() => _online = result != ConnectivityResult.none);
       if (_online) _sincronizar();
     });
-    // Pedir permiso de notificaciones (Android 13+) para el ForegroundService
-    WidgetsBinding.instance.addPostFrameCallback((_) => _pedirPermisoNotificaciones());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pedirPermisoNotificaciones();
+      // Escuchar sync completada para recargar contactos locales
+      ref.listenManual(syncProvider, (prev, next) {
+        if (next.estado == SyncEstado.completado &&
+            prev?.estado != SyncEstado.completado) {
+          _recargarPagina();
+        }
+      });
+    });
   }
 
   Future<void> _pedirPermisoNotificaciones() async {

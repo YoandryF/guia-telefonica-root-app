@@ -128,6 +128,28 @@ class _BannerContent extends ConsumerWidget {
                     style: TextButton.styleFrom(foregroundColor: Colors.white),
                     child: const Text('Cancelar', style: TextStyle(fontSize: 12)),
                   )
+                // Error con offset guardado → botón Continuar
+                else if (sync.puedeContinuar)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextButton(
+                        onPressed: () {
+                          final offset = sync.offsetGuardado;
+                          ref.read(syncProvider.notifier).reset();
+                          BackgroundSyncService.iniciarSync(ref, desdeOffset: offset);
+                        },
+                        style: TextButton.styleFrom(foregroundColor: Colors.white),
+                        child: const Text('Continuar', style: TextStyle(fontSize: 12)),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white, size: 18),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: () => ref.read(syncProvider.notifier).reset(),
+                      ),
+                    ],
+                  )
                 else
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.white, size: 18),
