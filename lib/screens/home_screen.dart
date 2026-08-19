@@ -133,42 +133,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _resincronizarTodo() async {
-    final syncState = ref.read(syncProvider);
-    if (syncState.enProgreso) return;
-    await BackgroundSyncService.iniciarSync();
+    if (BackgroundSyncService.isRunning) return;
+    await BackgroundSyncService.iniciarSync(ref);
   }
 
   Future<void> _sincronizar() async {
     if (_sincronizando) return;
-    final syncState = ref.read(syncProvider);
-    if (syncState.enProgreso) return;
+    if (BackgroundSyncService.isRunning) return;
 
     setState(() { _sincronizando = true; _syncDescargados = 0; _syncTotal = 0; });
 
     try {
-      final ultimaSync    = await _localDb.getUltimaSincronizacion();
-      final totalRemoto   = await _supabaseService.contarContactosAprobados();
-      final totalLocal    = await _localDb.countContactos();
-      final desfase       = totalRemoto - totalLocal;
+      final ultimaSync  = await _localDb.getUltimaSincronizacion();
+      final totalRemoto = await _supabaseService.contarContactosAprobados();
+      final totalLocal  = await _localDb.countContactos();
+      final desfase     = totalRemoto - totalLocal;
 
       if (desfase > 50 || ultimaSync == null) {
-        // Desfase grande — delegar al background service
-        await BackgroundSyncService.iniciarSync();
+        // Desfase grande — background service (no resetear _sincronizando aquí,
+        // el SyncBanner toma el control visual)
         if (mounted) setState(() => _sincronizando = false);
+        await BackgroundSyncService.iniciarSync(ref);
         return;
       }
 
-      // Sync incremental rápida (pocos cambios — se hace en foreground)
+      // Sync incremental rápida
       final nuevos = await _supabaseService.getContactosAprobadosDesde(ultimaSync);
-      if (nuevos.isNotEmpty) {
-        await _localDb.sincronizarBatch(nuevos);
-      }
+      if (nuevos.isNotEmpty) await _localDb.sincronizarBatch(nuevos);
       final eliminados = await _supabaseService.getContactosEliminadosDesde(ultimaSync);
-      for (final id in eliminados) {
-        await _localDb.eliminarContacto(id);
-      }
-      final idsReportados = await _supabaseService.getContactosConReportes();
-      await _localDb.actualizarReportesEficiente(idsReportados);
+      for (final id in eliminados) await _localDb.eliminarContacto(id);
+      final ids = await _supabaseService.getContactosConReportes();
+      await _localDb.actualizarReportesEficiente(ids);
       await _localDb.guardarUltimaSincronizacion(DateTime.now());
       await _recargarPagina();
     } catch (e) {

@@ -9,60 +9,44 @@ import '../services/local_database_service.dart';
 import '../services/supabase_service.dart';
 
 /// Servicio de sincronización en background.
-///
-/// El ForegroundService nativo Kotlin (SyncForegroundService.kt) mantiene
-/// el proceso Android vivo con pantalla apagada.
-/// La lógica de descarga y el estado corren completamente en Dart/Riverpod.
-/// No hay Isolate separado — mismo proceso, acceso directo al estado.
+/// El ref de Riverpod se pasa directamente — sin referencias estáticas frágiles.
 class BackgroundSyncService {
   static const _syncChannel = MethodChannel('guia_telefonica/sync');
-
-  // Referencia al notifier — se asigna desde SyncServiceListener al init
-  static SyncNotifier? _notifier;
-
-  // Flag de cancelación — se activa desde el botón cancelar
   static bool _cancelRequested = false;
-
-  // Indica si hay una sync en curso
   static bool _running = false;
 
-  static void _bindNotifier(SyncNotifier notifier) {
-    _notifier = notifier;
-  }
+  static bool get isRunning => _running;
 
-  // ─── API pública ──────────────────────────────────────────
-  static Future<void> iniciarSync() async {
+  // ─── Arrancar sync — recibe ref para actualizar Riverpod directamente ─
+  static Future<void> iniciarSync(WidgetRef ref) async {
     if (_running) return;
     _cancelRequested = false;
     _running = true;
 
-    // Arrancar ForegroundService nativo (mantiene proceso vivo)
+    // Intentar arrancar ForegroundService nativo (mantiene proceso vivo)
     try {
       await _syncChannel.invokeMethod('startSync');
-    } catch (e) {
-      debugPrint('ForegroundService no disponible: $e');
-      // Continuar igual — la sync funciona sin él, solo no sobrevive con pantalla apagada
+    } catch (_) {
+      // Sin ForegroundService la sync funciona igual, solo no sobrevive pantalla apagada
     }
 
-    // Ejecutar sync en Dart (mismo proceso — acceso directo a Riverpod)
-    await _ejecutarSync();
+    // Ejecutar sync — actualiza Riverpod directamente con ref
+    await _ejecutarSync(ref);
   }
 
+  // ─── Cancelar ─────────────────────────────────────────────
   static void cancelarSync() {
     _cancelRequested = true;
-    // Detener ForegroundService nativo
     _syncChannel.invokeMethod('cancelSync').catchError((_) {});
   }
 
-  // ─── Lógica de descarga ───────────────────────────────────
-  static Future<void> _ejecutarSync() async {
-    final notifier = _notifier;
-    if (notifier == null) return;
+  // ─── Lógica principal ─────────────────────────────────────
+  static Future<void> _ejecutarSync(WidgetRef ref) async {
+    final notifier = ref.read(syncProvider.notifier);
+    final supabase  = SupabaseService();
+    final localDb   = LocalDatabaseService();
 
-    final supabase = SupabaseService();
-    final localDb  = LocalDatabaseService();
-
-    void actualizar(String estado, int desc, int total, {String? error}) {
+    void update(String estado, int desc, int total, {String? error}) {
       switch (estado) {
         case 'preparando':  notifier.setPreparando();
         case 'descargando': notifier.setDescargando(desc, total);
@@ -78,10 +62,10 @@ class BackgroundSyncService {
     }
 
     try {
-      actualizar('preparando', 0, 0);
+      update('preparando', 0, 0);
 
       final total = await supabase.contarContactosAprobados();
-      actualizar('descargando', 0, total);
+      update('descargando', 0, total);
 
       int  descargados = 0;
       int  offset      = 0;
@@ -107,22 +91,22 @@ class BackgroundSyncService {
         offset      += pageSize;
         hayMas       = lista.length == pageSize;
 
-        actualizar('descargando', descargados, total);
+        update('descargando', descargados, total);
       }
 
       if (_cancelRequested) {
-        actualizar('cancelado', descargados, total);
+        update('cancelado', descargados, total);
       } else {
-        actualizar('guardando', descargados, total);
+        update('guardando', descargados, total);
         try {
           final ids = await supabase.getContactosConReportes();
           await localDb.actualizarReportesEficiente(ids);
           await localDb.guardarUltimaSincronizacion(DateTime.now());
         } catch (_) {}
-        actualizar('completado', descargados, total);
+        update('completado', descargados, total);
       }
     } catch (e) {
-      actualizar('error', 0, 0, error: e.toString());
+      update('error', 0, 0, error: e.toString());
     } finally {
       _running = false;
       _cancelRequested = false;
@@ -131,29 +115,11 @@ class BackgroundSyncService {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Widget raíz: registra el notifier en el servicio y escucha
-// el estado para recargar contactos al completar.
-// ─────────────────────────────────────────────────────────────
-class SyncServiceListener extends ConsumerStatefulWidget {
+// ─── Widget raíz — solo existe para mantener la API consistente ──────────
+class SyncServiceListener extends ConsumerWidget {
   final Widget child;
   const SyncServiceListener({super.key, required this.child});
 
   @override
-  ConsumerState<SyncServiceListener> createState() =>
-      _SyncServiceListenerState();
-}
-
-class _SyncServiceListenerState extends ConsumerState<SyncServiceListener> {
-  @override
-  void initState() {
-    super.initState();
-    // Registrar el notifier para que el servicio pueda actualizar el estado
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      BackgroundSyncService._bindNotifier(ref.read(syncProvider.notifier));
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context, WidgetRef ref) => child;
 }
