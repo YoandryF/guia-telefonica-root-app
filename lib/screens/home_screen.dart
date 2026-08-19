@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../models/contacto.dart';
+import '../providers/sync_provider.dart';
+import '../services/background_sync_service.dart';
 import '../services/local_database_service.dart';
 import '../services/supabase_service.dart';
 import '../services/update_service.dart';
@@ -131,78 +133,43 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _resincronizarTodo() async {
-    setState(() { _sincronizando = true; _syncDescargados = 0; _syncTotal = 0; });
-    try {
-      final total = await _supabaseService.contarContactosAprobados();
-      if (mounted) setState(() => _syncTotal = total);
-
-      int descargados = 0;
-      await for (final pagina in _supabaseService.streamContactosAprobadosPaginado()) {
-        await _localDb.sincronizarBatch(pagina);
-        descargados += pagina.length;
-        if (mounted) setState(() => _syncDescargados = descargados);
-      }
-
-      await _localDb.guardarUltimaSincronizacion(DateTime.now());
-      await _recargarPagina();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('✅ Sincronización completa: $descargados contactos')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-    if (mounted) setState(() => _sincronizando = false);
+    final syncState = ref.read(syncProvider);
+    if (syncState.enProgreso) return;
+    await BackgroundSyncService.iniciarSync();
   }
 
   Future<void> _sincronizar() async {
     if (_sincronizando) return;
-    setState(() {
-      _sincronizando = true;
-      _syncDescargados = 0;
-      _syncTotal = 0;
-    });
+    final syncState = ref.read(syncProvider);
+    if (syncState.enProgreso) return;
+
+    setState(() { _sincronizando = true; _syncDescargados = 0; _syncTotal = 0; });
 
     try {
-      final ultimaSync = await _localDb.getUltimaSincronizacion();
-      final totalRemoto = await _supabaseService.contarContactosAprobados();
-      final totalLocal = await _localDb.countContactos();
+      final ultimaSync    = await _localDb.getUltimaSincronizacion();
+      final totalRemoto   = await _supabaseService.contarContactosAprobados();
+      final totalLocal    = await _localDb.countContactos();
+      final desfase       = totalRemoto - totalLocal;
 
-      final desfase = totalRemoto - totalLocal;
       if (desfase > 50 || ultimaSync == null) {
-        // Sync completa streaming — descarga y guarda por páginas sin acumular en RAM
-        final total = await _supabaseService.contarContactosAprobados();
-        if (mounted) setState(() => _syncTotal = total);
-        int descargados = 0;
-        await for (final pagina in _supabaseService.streamContactosAprobadosPaginado()) {
-          await _localDb.sincronizarBatch(pagina);
-          descargados += pagina.length;
-          if (mounted) setState(() => _syncDescargados = descargados);
-        }
-      } else {
-        // Sync incremental (rápida, sin barra de progreso)
-        final nuevos = await _supabaseService.getContactosAprobadosDesde(ultimaSync);
-        if (nuevos.isNotEmpty) {
-          await _localDb.sincronizarBatch(nuevos);
-        }
-
-        final eliminados = await _supabaseService.getContactosEliminadosDesde(ultimaSync);
-        for (final id in eliminados) {
-          await _localDb.eliminarContacto(id);
-        }
+        // Desfase grande — delegar al background service
+        await BackgroundSyncService.iniciarSync();
+        if (mounted) setState(() => _sincronizando = false);
+        return;
       }
 
+      // Sync incremental rápida (pocos cambios — se hace en foreground)
+      final nuevos = await _supabaseService.getContactosAprobadosDesde(ultimaSync);
+      if (nuevos.isNotEmpty) {
+        await _localDb.sincronizarBatch(nuevos);
+      }
+      final eliminados = await _supabaseService.getContactosEliminadosDesde(ultimaSync);
+      for (final id in eliminados) {
+        await _localDb.eliminarContacto(id);
+      }
+      final idsReportados = await _supabaseService.getContactosConReportes();
+      await _localDb.actualizarReportesEficiente(idsReportados);
       await _localDb.guardarUltimaSincronizacion(DateTime.now());
-      try {
-        // Solo los IDs con reportes (normalmente muy pocos) — sin cargar 900k en RAM
-        final idsReportados = await _supabaseService.getContactosConReportes();
-        await _localDb.actualizarReportesEficiente(idsReportados);
-      } catch (_) {}
       await _recargarPagina();
     } catch (e) {
       debugPrint('Sync error: $e');
@@ -478,6 +445,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
           PopupMenuButton<String>(
             onSelected: (value) {
+              final syncEnProgreso = ref.read(syncProvider).enProgreso;
+              // Bloquear importar/exportar/resync durante sync en background
+              if (syncEnProgreso && (value == 'resync')) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('⏳ Espera a que termine la sincronización')),
+                );
+                return;
+              }
               switch (value) {
                 case 'admin':
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginAdminScreen()));

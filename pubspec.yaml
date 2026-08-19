@@ -1,7 +1,7 @@
 name: guia_telefonica
 description: Guía Telefónica Colaborativa - Offline-first con Supabase
 publish_to: 'none'
-version: 4.1.6+66
+version: 4.1.7+67
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -47,6 +47,9 @@ dependencies:
   # Auto-actualización
   http: ^1.2.1
   package_info_plus: ^8.0.3
+
+  # Background service (sync en segundo plano con ForegroundService Android)
+  flutter_background_service: ^0.2.6
 
   # Preferencias locales (tema)
   shared_preferences: ^2.3.3

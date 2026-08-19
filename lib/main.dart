@@ -5,8 +5,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/supabase_config.dart';
 import 'screens/splash_screen.dart';
 import 'providers/theme_provider.dart';
+import 'services/background_sync_service.dart';
 import 'services/deep_link_router.dart';
 import 'services/ubicacion_service.dart';
+import 'widgets/sync_banner.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,6 +19,9 @@ void main() async {
   );
 
   await UbicacionService.init();
+
+  // Inicializar el servicio de background sync
+  await BackgroundSyncService.initializeService();
 
   runApp(const ProviderScope(child: GuiaTelefonicaApp()));
 }
@@ -41,17 +46,14 @@ class _GuiaTelefonicaAppState extends ConsumerState<GuiaTelefonicaApp> {
   Future<void> _initDeepLinks() async {
     _appLinks = AppLinks();
 
-    // Link que abrió la app desde estado cerrado
     final initialLink = await _appLinks.getInitialLink();
     if (initialLink != null) {
-      // Esperar a que el árbol de widgets esté listo
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final ctx = _navigatorKey.currentContext;
         if (ctx != null) DeepLinkRouter.handle(initialLink, ctx);
       });
     }
 
-    // Links mientras la app está en segundo plano o abierta
     _appLinks.uriLinkStream.listen((uri) {
       final ctx = _navigatorKey.currentContext;
       if (ctx != null) DeepLinkRouter.handle(uri, ctx);
@@ -77,7 +79,13 @@ class _GuiaTelefonicaAppState extends ConsumerState<GuiaTelefonicaApp> {
         brightness: Brightness.dark,
       ),
       themeMode: themeMode,
-      home: const SplashScreen(),
+      // SyncServiceListener conecta el stream del background service con Riverpod
+      // SyncBanner muestra el progreso en TODAS las pantallas
+      home: SyncServiceListener(
+        child: SyncBanner(
+          child: const SplashScreen(),
+        ),
+      ),
     );
   }
 }
