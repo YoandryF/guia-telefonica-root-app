@@ -73,21 +73,39 @@ class BackgroundSyncService {
       int  descargados = 0;
       int  offset      = 0;
       bool hayMas      = true;
-      const pageSize   = 1000;
+      // pageSize reducido a 500 para evitar statement timeout de Supabase
+      // Sin JOIN de categorías — se cargan por separado, menos datos por query
+      const pageSize = 500;
 
       while (hayMas && !_cancelRequested) {
-        final response = await Supabase.instance.client
-            .from('contactos')
-            .select('*, categorias(nombre, icono)')
-            .eq('estado', 'aprobado')
-            .isFilter('deleted_at', null)
-            .order('nombre')
-            .range(offset, offset + pageSize - 1);
+        List? lista;
+        // Reintentar una vez si hay timeout
+        for (int intento = 0; intento < 2; intento++) {
+          try {
+            final response = await Supabase.instance.client
+                .from('contactos')
+                .select('id, nombre, apellido, telefono, direccion, ci, estado, '
+                    'categoria_id, verificado, score_riesgo, tiene_reportes, '
+                    'pais, provincia, municipio, fecha_creacion, fecha_aprobacion')
+                .eq('estado', 'aprobado')
+                .isFilter('deleted_at', null)
+                .order('nombre')
+                .range(offset, offset + pageSize - 1);
+            lista = response as List;
+            break; // éxito
+          } catch (e) {
+            if (intento == 0 && e.toString().contains('canceling')) {
+              debugPrint('BGSYNC: timeout en página offset=$offset, reintentando...');
+              await Future.delayed(const Duration(seconds: 3));
+            } else {
+              rethrow;
+            }
+          }
+        }
 
-        final lista = response as List;
-        if (lista.isEmpty) break;
+        if (lista == null || lista.isEmpty) break;
 
-        final pagina = lista.map((j) => Contacto.fromJson(j)).toList();
+        final pagina = lista.map((j) => Contacto.fromJson(j as Map<String, dynamic>)).toList();
         await localDb.sincronizarBatch(pagina);
 
         descargados += pagina.length;
