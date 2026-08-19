@@ -57,6 +57,46 @@ class SupabaseService {
     return allContactos;
   }
 
+  /// Stream paginado — descarga y entrega por páginas sin acumular todo en RAM.
+  /// Usar para sync completa con 900k+ contactos.
+  Stream<List<Contacto>> streamContactosAprobadosPaginado({
+    DateTime? desde,
+    int pageSize = 1000,
+  }) async* {
+    int offset = 0;
+    bool hayMas = true;
+
+    while (hayMas) {
+      var query = _client
+          .from('contactos')
+          .select('*, categorias(nombre, icono)')
+          .eq('estado', 'aprobado')
+          .isFilter('deleted_at', null);
+
+      if (desde != null) {
+        query = query.or(
+          'fecha_aprobacion.gt.${desde.toIso8601String()},'
+          'ultima_modificacion.gt.${desde.toIso8601String()}',
+        );
+      }
+
+      final response = await query
+          .order('nombre')
+          .range(offset, offset + pageSize - 1);
+
+      final lista = response as List;
+      if (lista.isEmpty) break;
+
+      yield lista.map((json) => Contacto.fromJson(json)).toList();
+
+      if (lista.length < pageSize) {
+        hayMas = false;
+      } else {
+        offset += pageSize;
+      }
+    }
+  }
+
   Future<int> contarContactosAprobados() async {
     final response = await _client
         .from('contactos')

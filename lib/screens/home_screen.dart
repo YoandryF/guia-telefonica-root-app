@@ -131,23 +131,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _resincronizarTodo() async {
-    setState(() {
-      _sincronizando = true;
-      _syncDescargados = 0;
-      _syncTotal = 0;
-    });
+    setState(() { _sincronizando = true; _syncDescargados = 0; _syncTotal = 0; });
     try {
-      final todos = await _supabaseService.getContactosAprobadosDesde(null, onProgress: (descargados, total) {
-        if (mounted) setState(() { _syncDescargados = descargados; _syncTotal = total; });
-      });
-      if (todos.isNotEmpty) {
-        await _localDb.sincronizarBatch(todos);
+      final total = await _supabaseService.contarContactosAprobados();
+      if (mounted) setState(() => _syncTotal = total);
+
+      int descargados = 0;
+      await for (final pagina in _supabaseService.streamContactosAprobadosPaginado()) {
+        await _localDb.sincronizarBatch(pagina);
+        descargados += pagina.length;
+        if (mounted) setState(() => _syncDescargados = descargados);
       }
+
       await _localDb.guardarUltimaSincronizacion(DateTime.now());
       await _recargarPagina();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('✅ Sincronización completa: ${todos.length} contactos')),
+          SnackBar(content: Text('✅ Sincronización completa: $descargados contactos')),
         );
       }
     } catch (e) {
@@ -175,12 +175,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
       final desfase = totalRemoto - totalLocal;
       if (desfase > 50 || ultimaSync == null) {
-        // Sync completa con progreso
-        final todos = await _supabaseService.getContactosAprobadosDesde(null, onProgress: (descargados, total) {
-          if (mounted) setState(() { _syncDescargados = descargados; _syncTotal = total; });
-        });
-        if (todos.isNotEmpty) {
-          await _localDb.sincronizarBatch(todos);
+        // Sync completa streaming — descarga y guarda por páginas sin acumular en RAM
+        final total = await _supabaseService.contarContactosAprobados();
+        if (mounted) setState(() => _syncTotal = total);
+        int descargados = 0;
+        await for (final pagina in _supabaseService.streamContactosAprobadosPaginado()) {
+          await _localDb.sincronizarBatch(pagina);
+          descargados += pagina.length;
+          if (mounted) setState(() => _syncDescargados = descargados);
         }
       } else {
         // Sync incremental (rápida, sin barra de progreso)
