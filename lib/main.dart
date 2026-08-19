@@ -5,7 +5,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/supabase_config.dart';
 import 'screens/splash_screen.dart';
 import 'providers/theme_provider.dart';
-import 'services/background_sync_service.dart';
 import 'services/deep_link_router.dart';
 import 'services/ubicacion_service.dart';
 import 'widgets/sync_banner.dart';
@@ -19,9 +18,6 @@ void main() async {
   );
 
   await UbicacionService.init();
-
-  // Inicializar el servicio de background sync
-  await BackgroundSyncService.initializeService();
 
   runApp(const ProviderScope(child: GuiaTelefonicaApp()));
 }
