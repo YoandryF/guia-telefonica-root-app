@@ -70,12 +70,37 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
             .toList();
       }
 
-      // Obtener todos los contactos de la BD local
-      final todos = await _localDb.getAllContactos();
+      // Con 900k+ contactos NO cargar todos en memoria.
+      // Invertir lógica: tomar los teléfonos de la agenda (pocos)
+      // y buscar en SQLite solo los que existen localmente.
+      final telefonosAgenda = enAgenda.map((c) => _normalizar(c['phone'] ?? '')).toSet();
 
-      // Determinar cuáles NO están en la agenda (disponibles para sync)
-      final telefonosEnAgenda = enAgenda.map((c) => _normalizar(c['phone'] ?? '')).toSet();
-      final disponibles = todos.where((c) => !telefonosEnAgenda.contains(_normalizar(c.telefono))).toList();
+      // Buscar en SQLite solo los teléfonos que YA están en agenda
+      final enAgendaIds = <String>{};
+      for (final tel in telefonosAgenda) {
+        if (tel.isNotEmpty) {
+          final c = await _localDb.buscarPorTelefono(tel);
+          if (c != null) enAgendaIds.add(c.id);
+        }
+      }
+
+      // Disponibles = contactos locales que NO están en la agenda
+      // Para no cargar 900k, paginar y filtrar
+      final disponibles = <Contacto>[];
+      int offset = 0;
+      const pageSize = 500;
+      while (true) {
+        final pagina = await _localDb.getContactosPaginados(offset: offset, limit: pageSize);
+        if (pagina.isEmpty) break;
+        for (final c in pagina) {
+          if (!enAgendaIds.contains(c.id) &&
+              !telefonosAgenda.contains(_normalizar(c.telefono))) {
+            disponibles.add(c);
+          }
+        }
+        if (pagina.length < pageSize) break;
+        offset += pageSize;
+      }
 
       setState(() {
         _enAgenda = enAgenda;

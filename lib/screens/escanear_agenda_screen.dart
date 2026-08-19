@@ -47,9 +47,7 @@ class _EscanearAgendaScreenState extends State<EscanearAgendaScreen> {
 
       // Obtener teléfonos reportados de nuestra BD local
       final reportados = await _localDb.getTelefonosReportados();
-      final todos = await _localDb.getAllContactos();
-
-      // Normalizar para comparar
+      // NO cargar todos los contactos — buscar solo los que coincidan con la agenda
       final reportadosNorm = reportados.map(_normalizar).toSet();
 
       setState(() => _statusMsg = 'Comparando ${agendaContactos.length} contactos...');
@@ -60,11 +58,12 @@ class _EscanearAgendaScreenState extends State<EscanearAgendaScreen> {
         final contacto = agendaContactos[i];
         final tel = _normalizar(contacto['phone']?.toString() ?? '');
         if (tel.isNotEmpty && reportadosNorm.contains(tel)) {
-          final local = todos.where((c) => _normalizar(c.telefono) == tel).toList();
+          // Buscar el contacto local solo cuando hay coincidencia (pocos casos)
+          final local = await _localDb.buscarPorTelefono(tel);
           encontrados.add({
             'nombre': contacto['name']?.toString() ?? 'Desconocido',
             'telefono': contacto['phone']?.toString() ?? '',
-            'contacto_local': local.isNotEmpty ? local.first : null,
+            'contacto_local': local,
           });
         }
 

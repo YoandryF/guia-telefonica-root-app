@@ -208,6 +208,20 @@ class LocalDatabaseService {
     return maps.map((m) => Contacto.fromJson(m)).toList();
   }
 
+  /// Buscar un contacto por teléfono exacto en SQLite local (O(log n) con índice)
+  Future<Contacto?> buscarPorTelefono(String telefono) async {
+    final db = await database;
+    final norm = telefono.replaceAll(RegExp(r'[^0-9]'), '');
+    final maps = await db.query(
+      'contactos_aprobados',
+      where: 'telefono = ? OR REPLACE(REPLACE(telefono,"-","")," ","") = ?',
+      whereArgs: [telefono, norm],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return Contacto.fromJson(maps.first);
+  }
+
   /// Paginación SQL — no carga 25k en memoria, solo la página solicitada
   Future<List<Contacto>> getContactosPaginados({
     int offset = 0,
@@ -512,6 +526,23 @@ class LocalDatabaseService {
     for (final entry in reportes.entries) {
       batch.update('contactos_aprobados', {'tiene_reportes': entry.value ? 1 : 0},
           where: 'id = ?', whereArgs: [entry.key]);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Versión eficiente para 900k+ contactos:
+  /// Recibe solo los IDs que TIENEN reportes (conjunto pequeño).
+  /// Primero limpia todos los flags, luego activa solo los reportados.
+  Future<void> actualizarReportesEficiente(Set<String> idsConReportes) async {
+    final db = await database;
+    // 1. Limpiar todos los flags (UPDATE masivo en SQLite es rápido)
+    await db.update('contactos_aprobados', {'tiene_reportes': 0});
+    if (idsConReportes.isEmpty) return;
+    // 2. Activar solo los que tienen reportes (normalmente pocos)
+    final batch = db.batch();
+    for (final id in idsConReportes) {
+      batch.update('contactos_aprobados', {'tiene_reportes': 1},
+          where: 'id = ?', whereArgs: [id]);
     }
     await batch.commit(noResult: true);
   }

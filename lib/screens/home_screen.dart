@@ -199,13 +199,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
       await _localDb.guardarUltimaSincronizacion(DateTime.now());
       try {
+        // Solo los IDs con reportes (normalmente muy pocos) — sin cargar 900k en RAM
         final idsReportados = await _supabaseService.getContactosConReportes();
-        final contactos = await _localDb.getAllContactos();
-        final reportesMap = <String, bool>{};
-        for (final c in contactos) {
-          reportesMap[c.id] = idsReportados.contains(c.id);
-        }
-        await _localDb.actualizarReportes(reportesMap);
+        await _localDb.actualizarReportesEficiente(idsReportados);
       } catch (_) {}
       await _recargarPagina();
     } catch (e) {
