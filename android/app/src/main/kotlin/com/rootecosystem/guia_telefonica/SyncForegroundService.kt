@@ -60,14 +60,21 @@ class SyncForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            cancelRequested = true
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                cancelRequested = true
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            "UPDATE_NOTIFICATION" -> {
+                val texto = intent.getStringExtra("texto") ?: "Sincronizando..."
+                actualizarNotificacion(texto)
+                return START_NOT_STICKY
+            }
         }
 
         cancelRequested = false
-        startForeground(NOTIFICATION_ID, buildNotification("Iniciando sincronización..."))
+        startForeground(NOTIFICATION_ID, buildNotification("Sincronizando contactos..."))
         return START_NOT_STICKY
     }
 

@@ -69,8 +69,12 @@ class MainActivity : FlutterActivity() {
                 }
                 "updateNotification" -> {
                     val texto = call.argument<String>("texto") ?: ""
-                    // Encontrar el servicio activo y actualizar su notificación
-                    // (Se hace via broadcast o directo si el servicio tiene referencia)
+                    // Actualizar notificación del ForegroundService activo
+                    val serviceIntent = Intent(this, SyncForegroundService::class.java).apply {
+                        action = "UPDATE_NOTIFICATION"
+                        putExtra("texto", texto)
+                    }
+                    startService(serviceIntent)
                     result.success(true)
                 }
                 else -> result.notImplemented()

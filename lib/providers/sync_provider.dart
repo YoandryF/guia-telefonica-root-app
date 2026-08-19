@@ -36,15 +36,15 @@ class SyncState {
 
   String get mensajeProgreso {
     switch (estado) {
-      case SyncEstado.idle:      return 'Sin sincronizar';
+      case SyncEstado.idle:       return 'Sin sincronizar';
       case SyncEstado.preparando: return 'Preparando sincronización...';
       case SyncEstado.descargando:
         return total > 0
-            ? 'Descargando $descargados de $total contactos'
-            : 'Descargando contactos...';
-      case SyncEstado.guardando:  return 'Guardando en dispositivo...';
+            ? 'Sincronizando $descargados de $total contactos'
+            : 'Sincronizando contactos...';
+      case SyncEstado.guardando:  return 'Finalizando sincronización...';
       case SyncEstado.completado: return 'Sincronización completada ($descargados contactos)';
-      case SyncEstado.error:      return 'Error: ${errorMsg ?? "desconocido"}';
+      case SyncEstado.error:      return 'Error al sincronizar — toca Continuar para reanudar';
       case SyncEstado.cancelado:  return 'Sincronización cancelada';
     }
   }
@@ -76,7 +76,13 @@ class SyncNotifier extends StateNotifier<SyncState> {
   SyncNotifier() : super(const SyncState());
 
   void setPreparando() {
-    state = const SyncState(estado: SyncEstado.preparando);
+    // Preservar offsetGuardado por si venimos de un error anterior
+    state = state.copyWith(
+      estado: SyncEstado.preparando,
+      descargados: 0,
+      total: 0,
+      errorMsg: null,
+    );
   }
 
   void setDescargando(int descargados, int total) {
