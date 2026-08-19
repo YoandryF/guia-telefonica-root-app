@@ -22,6 +22,9 @@ class BackgroundSyncService {
     _running = true;
     debugPrint('BGSYNC: iniciando desde offset=$desdeOffset');
     try {
+      // Parar cualquier instancia previa del servicio antes de arrancar
+      await _syncChannel.invokeMethod('cancelSync');
+      await Future.delayed(const Duration(milliseconds: 300));
       await _syncChannel.invokeMethod('startSync');
     } catch (e) {
       debugPrint('BGSYNC: ForegroundService no disponible: $e');

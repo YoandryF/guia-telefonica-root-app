@@ -155,13 +155,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _resincronizarTodo() async {
-    if (BackgroundSyncService.isRunning) return;
+    final syncState = ref.read(syncProvider);
+    if (syncState.enProgreso) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⏳ Sincronización en curso — espera o cancela desde el banner')),
+      );
+      return;
+    }
     await BackgroundSyncService.iniciarSync(ref);
   }
 
   Future<void> _sincronizar() async {
     if (_sincronizando) return;
-    if (BackgroundSyncService.isRunning) return;
+    final syncState = ref.read(syncProvider);
+    if (syncState.enProgreso) return; // ya hay un banner visible, no hacer nada
 
     setState(() { _sincronizando = true; _syncDescargados = 0; _syncTotal = 0; });
 

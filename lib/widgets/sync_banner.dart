@@ -136,7 +136,8 @@ class _BannerContent extends ConsumerWidget {
                       TextButton(
                         onPressed: () {
                           final offset = sync.offsetGuardado;
-                          ref.read(syncProvider.notifier).reset();
+                          // NO hacer reset() — setPreparando() sobrescribe el estado
+                          // y el banner se mantiene visible durante la transición
                           BackgroundSyncService.iniciarSync(ref, desdeOffset: offset);
                         },
                         style: TextButton.styleFrom(foregroundColor: Colors.white),
