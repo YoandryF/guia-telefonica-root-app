@@ -3,6 +3,7 @@ package com.rootecosystem.guia_telefonica
 import android.accounts.Account
 import android.accounts.AccountManager
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.ContentProviderOperation
 import android.content.ContentResolver
 import android.content.Intent
@@ -27,12 +28,64 @@ class MainActivity : FlutterActivity() {
     private val INSTALLER_CHANNEL = "guia_telefonica/installer"
     private val CONTACTS_CHANNEL = "guia_telefonica/contacts"
     private val SPEECH_CHANNEL = "guia_telefonica/speech"
+    private val SYNC_CHANNEL = "guia_telefonica/sync"          // Control sync
+    private val SYNC_EVENTS_CHANNEL = "guia_telefonica/sync_events"  // Progreso sync
 
     private val SPEECH_REQUEST_CODE = 7777
     private var speechResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // ── Canal de control de sync (iniciar / cancelar / estado) ──────
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SYNC_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "startSync" -> {
+                    SyncForegroundService.cancelRequested = false
+                    val intent = Intent(this, SyncForegroundService::class.java)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(intent)
+                    } else {
+                        startService(intent)
+                    }
+                    result.success(true)
+                }
+                "cancelSync" -> {
+                    SyncForegroundService.cancelRequested = true
+                    val intent = Intent(this, SyncForegroundService::class.java).apply {
+                        action = SyncForegroundService.ACTION_STOP
+                    }
+                    startService(intent)
+                    result.success(true)
+                }
+                "isRunning" -> {
+                    // Verificar si el servicio está corriendo
+                    val manager = getSystemService(android.app.ActivityManager::class.java)
+                    @Suppress("DEPRECATION")
+                    val running = manager.getRunningServices(Integer.MAX_VALUE)
+                        .any { it.service.className == SyncForegroundService::class.java.name }
+                    result.success(running)
+                }
+                "updateNotification" -> {
+                    val texto = call.argument<String>("texto") ?: ""
+                    // Encontrar el servicio activo y actualizar su notificación
+                    // (Se hace via broadcast o directo si el servicio tiene referencia)
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        // ── EventChannel para recibir progreso del servicio en Flutter ──
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, SYNC_EVENTS_CHANNEL)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    SyncForegroundService.eventSink = events
+                }
+                override fun onCancel(arguments: Any?) {
+                    SyncForegroundService.eventSink = null
+                }
+            })
 
         // Canal de instalación APK
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, INSTALLER_CHANNEL).setMethodCallHandler { call, result ->

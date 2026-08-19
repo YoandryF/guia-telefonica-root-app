@@ -1,7 +1,6 @@
 import 'dart:async';
-import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/contacto.dart';
@@ -10,103 +9,90 @@ import '../services/local_database_service.dart';
 import '../services/supabase_service.dart';
 
 /// Servicio de sincronización en background.
-/// API: flutter_background_service v0.2.8
-/// Corre en ForegroundService de Android — sobrevive con pantalla apagada.
+/// ForegroundService nativo Kotlin mantiene el proceso vivo en Android.
+/// La lógica de descarga corre en Dart (mismo proceso, sin isolate separado).
+/// El progreso se comunica via StreamController interno → Riverpod.
 class BackgroundSyncService {
-  // Claves para comunicación UI ↔ Service
-  static const _keyProgress = 'syncProgress';
-  static const _keyCancel   = 'cancelSync';
+  static const _syncChannel = MethodChannel('guia_telefonica/sync');
 
-  // ─── Inicializar (llamar en main() antes de runApp) ───────
-  static Future<void> initializeService() async {
-    final service = FlutterBackgroundService();
-    await service.configure(
-      androidConfiguration: AndroidConfiguration(
-        onStart:             _onStart,
-        autoStart:           false,
-        isForegroundMode:    true,
-        foregroundServiceNotificationTitle:   'Guía Telefónica',
-        foregroundServiceNotificationContent: 'Sincronización lista',
-      ),
-      iosConfiguration: IosConfiguration(
-        autoStart:    false,
-        onForeground: _onStart,
-        onBackground: _onIosBackground,
-      ),
-    );
-  }
+  // StreamController interno — Dart produce, SyncServiceListener consume
+  static final _progressController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
-  // ─── Arrancar sync ────────────────────────────────────────
+  static Stream<Map<String, dynamic>> get _progreso =>
+      _progressController.stream;
+
+  // ─── No-op: la init la hace MainActivity ────────────────────────────
+  static Future<void> initializeService() async {}
+
+  // ─── Arrancar sync ────────────────────────────────────────────────────
   static Future<void> iniciarSync() async {
-    final service = FlutterBackgroundService();
-    final running = await service.isServiceRunning();
-    if (!running) {
-      service.start();
-    }
-  }
-
-  // ─── Cancelar sync ────────────────────────────────────────
-  static void cancelarSync() {
-    FlutterBackgroundService().sendData({_keyCancel: true});
-  }
-
-  // ─── Stream de progreso (escuchar desde la UI) ────────────
-  static Stream<Map<String, dynamic>?> escucharProgreso() {
-    return FlutterBackgroundService().onDataReceived
-        .where((data) => data != null && data.containsKey(_keyProgress))
-        .map((data) => data![_keyProgress] as Map<String, dynamic>?);
-  }
-
-  // ─── Lógica que corre en el proceso background ────────────
-  @pragma('vm:entry-point')
-  static void _onStart() {
-    WidgetsFlutterBinding.ensureInitialized();
-    DartPluginRegistrant.ensureInitialized();
-    _runSync();
-  }
-
-  static Future<void> _runSync() async {
-    final service   = FlutterBackgroundService();
-    bool  cancelado = false;
-
-    // Escuchar señal de cancelación desde la UI
-    final cancelSub = service.onDataReceived.listen((data) {
-      if (data != null && data[_keyCancel] == true) {
-        cancelado = true;
+    try {
+      final running = await _syncChannel.invokeMethod<bool>('isRunning') ?? false;
+      if (!running) {
+        // 1. Arrancar ForegroundService nativo (mantiene el proceso vivo)
+        await _syncChannel.invokeMethod('startSync');
+        // 2. Ejecutar lógica de descarga en Dart
+        _ejecutarSync();
       }
-    });
-
-    void enviar(String estado, int desc, int total, {String? error}) {
-      service.sendData({
-        _keyProgress: {
-          'estado':      estado,
-          'descargados': desc,
-          'total':       total,
-          if (error != null) 'error': error,
-        },
-      });
-      // Actualizar notificación Android
-      service.setNotificationInfo(
-        title: 'Guía Telefónica — Sincronizando',
-        content: total > 0 ? '$desc de $total contactos' : estado,
-      );
+    } catch (e) {
+      debugPrint('iniciarSync error: $e');
     }
+  }
+
+  // ─── Cancelar sync ────────────────────────────────────────────────────
+  static Future<void> cancelarSync() async {
+    try {
+      await _syncChannel.invokeMethod('cancelSync');
+    } catch (e) {
+      debugPrint('cancelarSync error: $e');
+    }
+  }
+
+  // ─── Stream de progreso para SyncServiceListener ─────────────────────
+  static Stream<Map<String, dynamic>> escucharProgreso() => _progreso;
+
+  // ─── Lógica de descarga (Dart, proceso mantenido por ForegroundService) ─
+  static Future<void> _ejecutarSync() async {
+    final supabase = SupabaseService();
+    final localDb  = LocalDatabaseService();
+
+    void emit(String estado, int desc, int total, {String? error}) {
+      final data = <String, dynamic>{
+        'estado':      estado,
+        'descargados': desc,
+        'total':       total,
+        if (error != null) 'error': error,
+      };
+      _progressController.add(data);
+      // Actualizar notificación Android
+      final texto = total > 0 ? '$desc de $total contactos' : estado;
+      _syncChannel.invokeMethod('updateNotification', {'texto': texto})
+          .catchError((_) {});
+    }
+
+    bool cancelado = false;
 
     try {
-      enviar('preparando', 0, 0);
-
-      final supabase = SupabaseService();
-      final localDb  = LocalDatabaseService();
+      emit('preparando', 0, 0);
 
       final total = await supabase.contarContactosAprobados();
-      enviar('descargando', 0, total);
+      emit('descargando', 0, total);
 
       int  descargados = 0;
       int  offset      = 0;
       bool hayMas      = true;
       const pageSize   = 1000;
 
-      while (hayMas && !cancelado) {
+      while (hayMas) {
+        // Verificar si Android canceló el servicio
+        final running =
+            await _syncChannel.invokeMethod<bool>('isRunning') ?? false;
+        if (!running) {
+          cancelado = true;
+          break;
+        }
+
         final response = await Supabase.instance.client
             .from('contactos')
             .select('*, categorias(nombre, icono)')
@@ -125,58 +111,39 @@ class BackgroundSyncService {
         offset      += pageSize;
         hayMas       = lista.length == pageSize;
 
-        enviar('descargando', descargados, total);
+        emit('descargando', descargados, total);
       }
 
-      if (cancelado) {
-        enviar('cancelado', descargados, total);
-      } else {
-        enviar('guardando', descargados, total);
+      if (!cancelado) {
+        emit('guardando', descargados, total);
         try {
-          final idsReportados = await supabase.getContactosConReportes();
-          await localDb.actualizarReportesEficiente(idsReportados);
+          final ids = await supabase.getContactosConReportes();
+          await localDb.actualizarReportesEficiente(ids);
           await localDb.guardarUltimaSincronizacion(DateTime.now());
         } catch (_) {}
-        enviar('completado', descargados, total);
+        emit('completado', descargados, total);
+      } else {
+        emit('cancelado', descargados, total);
       }
     } catch (e) {
-      service.sendData({
-        _keyProgress: {
-          'estado': 'error',
-          'error':  e.toString(),
-          'descargados': 0,
-          'total': 0,
-        },
-      });
-      service.setNotificationInfo(
-        title: 'Guía Telefónica',
-        content: 'Error en sincronización',
-      );
+      emit('error', 0, 0, error: e.toString());
     } finally {
-      await cancelSub.cancel();
-      await Future.delayed(const Duration(seconds: 2));
-      service.stopBackgroundService();
+      // Detener el ForegroundService nativo
+      _syncChannel.invokeMethod('cancelSync').catchError((_) {});
     }
-  }
-
-  @pragma('vm:entry-point')
-  static Future<bool> _onIosBackground() async {
-    WidgetsFlutterBinding.ensureInitialized();
-    DartPluginRegistrant.ensureInitialized();
-    return true;
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Widget que conecta el stream del servicio con Riverpod.
-// Envuelve toda la app — se inicializa una sola vez.
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
+// Widget raíz — conecta el stream de progreso con el SyncNotifier Riverpod.
+// ─────────────────────────────────────────────────────────────────────────
 class SyncServiceListener extends ConsumerStatefulWidget {
   final Widget child;
   const SyncServiceListener({super.key, required this.child});
 
   @override
-  ConsumerState<SyncServiceListener> createState() => _SyncServiceListenerState();
+  ConsumerState<SyncServiceListener> createState() =>
+      _SyncServiceListenerState();
 }
 
 class _SyncServiceListenerState extends ConsumerState<SyncServiceListener> {
@@ -186,7 +153,6 @@ class _SyncServiceListenerState extends ConsumerState<SyncServiceListener> {
   void initState() {
     super.initState();
     _sub = BackgroundSyncService.escucharProgreso().listen((data) {
-      if (data == null) return;
       final notifier = ref.read(syncProvider.notifier);
       final estado   = data['estado'] as String? ?? '';
       final desc     = (data['descargados'] as num?)?.toInt() ?? 0;
@@ -196,12 +162,21 @@ class _SyncServiceListenerState extends ConsumerState<SyncServiceListener> {
         case 'preparando':  notifier.setPreparando();
         case 'descargando': notifier.setDescargando(desc, total);
         case 'guardando':   notifier.setGuardando();
-        case 'completado':  notifier.setCompletado(desc);
+        case 'completado':
+          notifier.setCompletado(desc);
+          // Recargar la lista local al completar
+          _onSyncCompletado();
         case 'cancelado':   notifier.setCancelado();
         case 'error':
           notifier.setError(data['error']?.toString() ?? 'desconocido');
       }
     });
+  }
+
+  Future<void> _onSyncCompletado() async {
+    // La home_screen escucha syncProvider y puede reaccionar al estado completado
+    // No necesitamos hacer nada aquí — el SyncBanner muestra "completado"
+    // y el usuario puede refrescar manualmente o navegar
   }
 
   @override

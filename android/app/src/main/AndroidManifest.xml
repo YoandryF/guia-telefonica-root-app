@@ -68,11 +68,12 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
-        <!-- ForegroundService para sync en background -->
+        <!-- ForegroundService nativo para sync en background -->
         <service
-            android:name="id.flutter.flutter_background_service.BackgroundService"
+            android:name=".SyncForegroundService"
             android:foregroundServiceType="dataSync"
-            android:exported="false"/>
+            android:exported="false"
+            android:enabled="true"/>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
