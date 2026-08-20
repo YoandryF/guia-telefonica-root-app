@@ -272,40 +272,48 @@ class LocalDatabaseService {
     }
   }
 
-  /// Búsqueda paginada — usa FTS5 si disponible, fallback LIKE
+  /// Búsqueda paginada usando FTS5 exclusivamente.
+  /// Para números de teléfono usa índice por prefijo (sin LIKE '%...%').
+  /// NO hay fallback LIKE — con 1M registros sería un full scan eterno.
   Future<List<Contacto>> buscarContactosPaginados(String query, {int offset = 0, int limit = 50}) async {
+    if (query.trim().isEmpty) return [];
     final db = await database;
-    // Intentar FTS5 primero
+    final q = query.trim();
+
+    // Teléfono (solo dígitos) — usar prefijo con índice
+    final soloDigitos = RegExp(r'^\d+$').hasMatch(q);
+    if (soloDigitos) {
+      final maps = await db.rawQuery(
+        '''SELECT * FROM contactos_aprobados
+           WHERE telefono LIKE ?
+           ORDER BY nombre ASC LIMIT ? OFFSET ?''',
+        ['$q%', limit, offset],
+      );
+      return maps.map((m) => Contacto.fromJson(m)).toList();
+    }
+
+    // Texto — FTS5 (O(log N), ultrarrápido en 1M registros)
     try {
+      // Sanitizar para FTS5: escapar caracteres especiales
+      final qFts = q.replaceAll('"', '""').replaceAll("'", "''");
       final maps = await db.rawQuery(
         '''SELECT ca.* FROM contactos_aprobados ca
-           JOIN contactos_fts fts ON ca.id = fts.id
+           JOIN contactos_fts fts ON ca.rowid = fts.rowid
            WHERE contactos_fts MATCH ?
            ORDER BY rank LIMIT ? OFFSET ?''',
-        ['$query*', limit, offset],
+        ['"$qFts"*', limit, offset],
       );
-      if (maps.isNotEmpty) return maps.map((m) => Contacto.fromJson(m)).toList();
-    } catch (_) {}
-
-    // Fallback LIKE
-    final maps = await db.rawQuery(
-      '''SELECT * FROM contactos_aprobados
-         WHERE nombre LIKE ? OR apellido LIKE ? OR telefono LIKE ? OR ci LIKE ?
-         ORDER BY nombre ASC LIMIT ? OFFSET ?''',
-      ['%$query%', '%$query%', '%$query%', '%$query%', limit, offset],
-    );
-    return maps.map((m) => Contacto.fromJson(m)).toList();
+      return maps.map((m) => Contacto.fromJson(m)).toList();
+    } catch (e) {
+      debugPrint('FTS5 buscar error: $e');
+      // NO fallback LIKE — retornar vacío con mensaje
+      return [];
+    }
   }
 
   Future<List<Contacto>> buscarContactos(String query) async {
-    final db = await database;
-    final maps = await db.query(
-      'contactos_aprobados',
-      where: 'nombre LIKE ? OR apellido LIKE ? OR telefono LIKE ? OR ci LIKE ? OR provincia LIKE ? OR municipio LIKE ?',
-      whereArgs: ['%$query%', '%$query%', '%$query%', '%$query%', '%$query%', '%$query%'],
-      orderBy: 'nombre ASC',
-    );
-    return maps.map((m) => Contacto.fromJson(m)).toList();
+    // Alias de buscarContactosPaginados sin paginación (compatibilidad)
+    return buscarContactosPaginados(query, limit: 200);
   }
 
   Future<List<Contacto>> filtrarPorProvincia(String provincia) async {
