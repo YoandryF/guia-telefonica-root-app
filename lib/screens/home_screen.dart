@@ -60,12 +60,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.initState();
     _cargarContactos();
     _cargarCategorias();
-    _sincronizar();
+    // _sincronizar() removido del arranque — manual via botón sync
+    // Con 900k registros las queries de verificación ralentizan la apertura
     _verificarActualizacion();
     _scrollController.addListener(_onScroll);
     _connectivitySub = Connectivity().onConnectivityChanged.listen((result) {
       setState(() => _online = result != ConnectivityResult.none);
-      if (_online) _sincronizar();
+      // No auto-sync al recuperar conexión — manual
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _pedirPermisoNotificaciones();
