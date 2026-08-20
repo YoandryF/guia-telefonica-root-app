@@ -90,29 +90,36 @@ class BackgroundSyncService {
       while (hayMas && !_cancelRequested) {
         List<dynamic>? lista;
 
-        // Reintentar una vez si hay error de red
+        // Reintentar una vez si hay error — verificar cancelación en el delay
         for (int intento = 0; intento < 2; intento++) {
+          if (_cancelRequested) break;
           try {
-            // Llamar RPC keyset — sin OFFSET, O(log N)
+            // Timeout por página de 20s — si tarda más, pasar al siguiente intento
             final params = <String, dynamic>{'p_page_size': pageSize};
             if (cursorNombre != null) {
               params['p_cursor_nombre'] = cursorNombre;
               params['p_cursor_id']     = cursorId;
             }
             final response = await Supabase.instance.client
-                .rpc('get_contactos_sync', params: params);
+                .rpc('get_contactos_sync', params: params)
+                .timeout(const Duration(seconds: 20));
             lista = response as List<dynamic>;
             break;
           } catch (e) {
+            if (_cancelRequested) break;
             if (intento == 0) {
               debugPrint('BGSYNC: error página cursor=$cursorNombre, reintentando en 3s... $e');
-              await Future.delayed(const Duration(seconds: 3));
+              // Delay interrompible: verificar cancelación cada 500ms
+              for (int ms = 0; ms < 6 && !_cancelRequested; ms++) {
+                await Future.delayed(const Duration(milliseconds: 500));
+              }
             } else {
               rethrow;
             }
           }
         }
 
+        if (_cancelRequested) break;
         if (lista == null || lista.isEmpty) break;
 
         final pagina = lista
