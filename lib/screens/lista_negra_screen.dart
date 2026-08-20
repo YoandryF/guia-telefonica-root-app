@@ -21,9 +21,15 @@ class _ListaNegraScreenState extends State<ListaNegraScreen> {
   }
 
   Future<void> _cargar() async {
-    final todos = await _localDb.getAllContactos();
+    // Query directa por tiene_reportes=1 — NO cargar 70k en memoria
+    final db = await _localDb.database;
+    final maps = await db.query(
+      'contactos_aprobados',
+      where: 'tiene_reportes = 1',
+      orderBy: 'nombre ASC',
+    );
     setState(() {
-      _reportados = todos.where((c) => c.tieneReportes).toList();
+      _reportados = maps.map((m) => Contacto.fromJson(m)).toList();
       _cargando = false;
     });
   }
