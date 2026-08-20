@@ -62,6 +62,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _cargarCategorias();
     _sincronizar();
     _verificarActualizacion();
+    _actualizarFlagsReportes(); // ← actualizar tiene_reportes en SQLite al arrancar
     _scrollController.addListener(_onScroll);
     _connectivitySub = Connectivity().onConnectivityChanged.listen((result) {
       setState(() => _online = result != ConnectivityResult.none);
@@ -92,6 +93,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
     } catch (_) {
       // permission_handler puede no tener notification en versiones viejas — ignorar
+    }
+  }
+
+  /// Actualiza tiene_reportes en SQLite consultando Supabase al arrancar.
+  /// Garantiza que la lista negra funcione aunque la sync esté incompleta.
+  Future<void> _actualizarFlagsReportes() async {
+    try {
+      if (!_online) return;
+      final ids = await _supabaseService.getContactosConReportes();
+      await _localDb.actualizarReportesEficiente(ids);
+    } catch (_) {
+      // Silencioso — no crítico para el arranque
     }
   }
 
@@ -173,7 +186,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _sincronizar() async {
     if (_sincronizando) return;
     final syncState = ref.read(syncProvider);
-    if (syncState.enProgreso) return; // ya hay un banner visible, no hacer nada
+    if (syncState.enProgreso) return;
 
     setState(() { _sincronizando = true; _syncDescargados = 0; _syncTotal = 0; });
 
