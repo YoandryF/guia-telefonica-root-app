@@ -83,7 +83,9 @@ class BackgroundSyncService {
       update('descargando', descargados, total);
 
       bool hayMas  = true;
-      const pageSize = 500;
+      // Con keyset pagination el tiempo por página es O(log N) — constante.
+      // Subimos a 2000 para reducir el número de requests de 1800 a 450.
+      const pageSize = 2000;
 
       while (hayMas && !_cancelRequested) {
         List<dynamic>? lista;
