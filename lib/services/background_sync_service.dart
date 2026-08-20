@@ -8,6 +8,9 @@ import '../providers/sync_provider.dart';
 import '../services/local_database_service.dart';
 import '../services/supabase_service.dart';
 
+/// Servicio de sincronización en background.
+/// Usa keyset pagination (cursor compuesto nombre+id) en vez de OFFSET.
+/// Elimina el timeout en tablas de 900k+ filas — O(log N) por página.
 class BackgroundSyncService {
   static const _syncChannel = MethodChannel('guia_telefonica/sync');
   static bool _cancelRequested = false;
@@ -15,21 +18,22 @@ class BackgroundSyncService {
 
   static bool get isRunning => _running;
 
-  // ─── Arrancar sync (opcionalmente desde un offset guardado) ───────────
-  static Future<void> iniciarSync(WidgetRef ref, {int desdeOffset = 0}) async {
+  static Future<void> iniciarSync(WidgetRef ref, {
+    String? desdeNombre,
+    String? desdeId,
+  }) async {
     if (_running) return;
     _cancelRequested = false;
     _running = true;
-    debugPrint('BGSYNC: iniciando desde offset=$desdeOffset');
+    debugPrint('BGSYNC: iniciando keyset sync desde nombre=${desdeNombre ?? "inicio"}');
     try {
-      // Parar cualquier instancia previa del servicio antes de arrancar
       await _syncChannel.invokeMethod('cancelSync');
-      await Future.delayed(const Duration(milliseconds: 300));
+      await Future.delayed(const Duration(milliseconds: 200));
       await _syncChannel.invokeMethod('startSync');
     } catch (e) {
       debugPrint('BGSYNC: ForegroundService no disponible: $e');
     }
-    await _ejecutarSync(ref, desdeOffset: desdeOffset);
+    await _ejecutarSync(ref, desdeNombre: desdeNombre, desdeId: desdeId);
   }
 
   static void cancelarSync() {
@@ -37,12 +41,17 @@ class BackgroundSyncService {
     _syncChannel.invokeMethod('cancelSync').catchError((_) {});
   }
 
-  // ─── Lógica principal ─────────────────────────────────────────────────
-  static Future<void> _ejecutarSync(WidgetRef ref, {int desdeOffset = 0}) async {
+  static Future<void> _ejecutarSync(WidgetRef ref, {
+    String? desdeNombre,
+    String? desdeId,
+  }) async {
     final notifier = ref.read(syncProvider.notifier);
     final supabase  = SupabaseService();
     final localDb   = LocalDatabaseService();
-    int offsetActual = desdeOffset;
+
+    // Cursor actual — se actualiza con cada página
+    String? cursorNombre = desdeNombre;
+    String? cursorId     = desdeId;
 
     void update(String estado, int desc, int total, {String? error}) {
       switch (estado) {
@@ -52,10 +61,13 @@ class BackgroundSyncService {
         case 'completado':  notifier.setCompletado(desc);
         case 'cancelado':   notifier.setCancelado();
         case 'error':
-          notifier.setError(error ?? 'desconocido',
-              offsetGuardado: offsetActual);
+          notifier.setError(
+            error ?? 'desconocido',
+            cursorNombre: cursorNombre,
+            cursorId:     cursorId,
+          );
       }
-      final texto = total > 0 ? '$desc de $total contactos' : estado;
+      final texto = total > 0 ? 'Sincronizando $desc de $total' : estado;
       _syncChannel.invokeMethod('updateNotification', {'texto': texto})
           .catchError((_) {});
     }
@@ -64,37 +76,34 @@ class BackgroundSyncService {
       update('preparando', 0, 0);
 
       final total = await supabase.contarContactosAprobados();
-      // Si continuamos desde offset guardado, los ya descargados son el offset
-      int descargados = desdeOffset;
+      // Si venimos de cursor, los ya descargados son los que hay en local
+      int descargados = desdeNombre != null
+          ? await localDb.countContactos()
+          : 0;
       update('descargando', descargados, total);
 
-      int  offset  = desdeOffset;
       bool hayMas  = true;
       const pageSize = 500;
 
       while (hayMas && !_cancelRequested) {
-        offsetActual = offset; // guardar por si falla aquí
-        List? lista;
+        List<dynamic>? lista;
 
-        // Reintentar una vez si hay timeout de statement
+        // Reintentar una vez si hay error de red
         for (int intento = 0; intento < 2; intento++) {
           try {
+            // Llamar RPC keyset — sin OFFSET, O(log N)
+            final params = <String, dynamic>{'p_page_size': pageSize};
+            if (cursorNombre != null) {
+              params['p_cursor_nombre'] = cursorNombre;
+              params['p_cursor_id']     = cursorId;
+            }
             final response = await Supabase.instance.client
-                .from('contactos')
-                .select(
-                  'id, nombre, apellido, telefono, direccion, ci, estado, '
-                  'categoria_id, verificado, score_riesgo, tiene_reportes, '
-                  'pais, provincia, municipio, fecha_creacion, fecha_aprobacion',
-                )
-                .eq('estado', 'aprobado')
-                .isFilter('deleted_at', null)
-                .order('nombre')
-                .range(offset, offset + pageSize - 1);
-            lista = response as List;
+                .rpc('get_contactos_sync', params: params);
+            lista = response as List<dynamic>;
             break;
           } catch (e) {
-            if (intento == 0 && e.toString().contains('canceling')) {
-              debugPrint('BGSYNC: timeout offset=$offset, reintentando en 3s...');
+            if (intento == 0) {
+              debugPrint('BGSYNC: error página cursor=$cursorNombre, reintentando en 3s... $e');
               await Future.delayed(const Duration(seconds: 3));
             } else {
               rethrow;
@@ -109,10 +118,14 @@ class BackgroundSyncService {
             .toList();
         await localDb.sincronizarBatch(pagina);
 
-        descargados  += pagina.length;
-        offset       += pageSize;
-        offsetActual  = offset;
-        hayMas        = lista.length == pageSize;
+        descargados += pagina.length;
+        hayMas       = pagina.length == pageSize;
+
+        // Actualizar cursor con el último registro de la página
+        if (pagina.isNotEmpty) {
+          cursorNombre = pagina.last.nombre;
+          cursorId     = pagina.last.id;
+        }
 
         update('descargando', descargados, total);
       }
@@ -130,9 +143,7 @@ class BackgroundSyncService {
       }
     } catch (e) {
       debugPrint('BGSYNC error: $e');
-      // setError preserva descargados del estado actual (último update exitoso)
-      // Así la UI puede recargar los contactos ya guardados
-      notifier.setError(e.toString(), offsetGuardado: offsetActual);
+      update('error', 0, 0, error: e.toString());
     } finally {
       _running = false;
       _cancelRequested = false;
@@ -141,7 +152,6 @@ class BackgroundSyncService {
   }
 }
 
-// ─── Widget raíz ─────────────────────────────────────────────────────────
 class SyncServiceListener extends ConsumerWidget {
   final Widget child;
   const SyncServiceListener({super.key, required this.child});

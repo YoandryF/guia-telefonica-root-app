@@ -135,10 +135,13 @@ class _BannerContent extends ConsumerWidget {
                     children: [
                       TextButton(
                         onPressed: () {
-                          final offset = sync.offsetGuardado;
-                          // NO hacer reset() — setPreparando() sobrescribe el estado
-                          // y el banner se mantiene visible durante la transición
-                          BackgroundSyncService.iniciarSync(ref, desdeOffset: offset);
+                          final nombre = sync.cursorNombre;
+                          final id     = sync.cursorId;
+                          BackgroundSyncService.iniciarSync(
+                            ref,
+                            desdeNombre: nombre,
+                            desdeId:     id,
+                          );
                         },
                         style: TextButton.styleFrom(foregroundColor: Colors.white),
                         child: const Text('Continuar', style: TextStyle(fontSize: 12)),
