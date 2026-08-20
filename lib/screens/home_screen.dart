@@ -69,10 +69,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _pedirPermisoNotificaciones();
-      // Escuchar sync completada para recargar contactos locales
+      // Escuchar sync completada O con error parcial para recargar contactos locales
       ref.listenManual(syncProvider, (prev, next) {
-        if (next.estado == SyncEstado.completado &&
-            prev?.estado != SyncEstado.completado) {
+        final termino = next.estado == SyncEstado.completado ||
+            next.estado == SyncEstado.error ||
+            next.estado == SyncEstado.cancelado;
+        final prevTermino = prev?.estado == SyncEstado.completado ||
+            prev?.estado == SyncEstado.error ||
+            prev?.estado == SyncEstado.cancelado;
+        if (termino && !prevTermino && next.descargados > 0) {
           _recargarPagina();
         }
       });

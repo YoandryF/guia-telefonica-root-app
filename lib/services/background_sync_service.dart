@@ -130,7 +130,9 @@ class BackgroundSyncService {
       }
     } catch (e) {
       debugPrint('BGSYNC error: $e');
-      update('error', 0, 0, error: e.toString());
+      // setError preserva descargados del estado actual (último update exitoso)
+      // Así la UI puede recargar los contactos ya guardados
+      notifier.setError(e.toString(), offsetGuardado: offsetActual);
     } finally {
       _running = false;
       _cancelRequested = false;

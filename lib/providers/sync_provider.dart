@@ -44,7 +44,10 @@ class SyncState {
             : 'Sincronizando contactos...';
       case SyncEstado.guardando:  return 'Finalizando sincronización...';
       case SyncEstado.completado: return 'Sincronización completada ($descargados contactos)';
-      case SyncEstado.error:      return 'Error al sincronizar — toca Continuar para reanudar';
+      case SyncEstado.error:
+        return descargados > 0
+            ? 'Error al sincronizar — $descargados guardados. Toca Continuar'
+            : 'Error al sincronizar — toca Continuar para reanudar';
       case SyncEstado.cancelado:  return 'Sincronización cancelada';
     }
   }
