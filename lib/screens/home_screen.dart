@@ -62,7 +62,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _cargarCategorias();
     _sincronizar();
     _verificarActualizacion();
-    _actualizarFlagsReportes(); // ← actualizar tiene_reportes en SQLite al arrancar
     _scrollController.addListener(_onScroll);
     _connectivitySub = Connectivity().onConnectivityChanged.listen((result) {
       setState(() => _online = result != ConnectivityResult.none);
@@ -507,6 +506,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 case 'resync':
                   _resincronizarTodo();
                   break;
+                case 'actualizar_reportes':
+                  _actualizarFlagsReportes();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('🔄 Actualizando lista negra...')),
+                  );
+                  break;
                 case 'callerid':
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const CallerIdScreen()));
                   break;
@@ -530,6 +535,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'callerid', child: ListTile(leading: Icon(Icons.phone_callback), title: Text('Identificador de llamadas'), dense: true)),
               const PopupMenuItem(value: 'resync', child: ListTile(leading: Icon(Icons.cloud_download), title: Text('Resincronizar todo'), dense: true)),
+              const PopupMenuItem(value: 'actualizar_reportes', child: ListTile(leading: Icon(Icons.warning_amber, color: Colors.orange), title: Text('Actualizar lista negra'), dense: true)),
               const PopupMenuItem(value: 'scan', child: ListTile(leading: Icon(Icons.security), title: Text('Escanear agenda'), dense: true)),
               const PopupMenuItem(value: 'listanegra', child: ListTile(leading: Icon(Icons.warning_amber, color: Colors.red), title: Text('Lista Negra'), dense: true)),
               const PopupMenuItem(value: 'misreportes', child: ListTile(leading: Icon(Icons.flag, color: Colors.orange), title: Text('Mis Reportes'), dense: true)),
