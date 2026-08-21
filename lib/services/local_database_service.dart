@@ -18,7 +18,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 7,
+      version: 8,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -62,6 +62,23 @@ class LocalDatabaseService {
       await db.execute('ALTER TABLE contactos_aprobados ADD COLUMN municipio TEXT');
       await db.execute('CREATE INDEX IF NOT EXISTS idx_ca_provincia ON contactos_aprobados(provincia)');
       await db.execute('CREATE INDEX IF NOT EXISTS idx_ca_municipio ON contactos_aprobados(municipio)');
+    }
+    if (oldVersion < 8) {
+      // Reconstruir índice FTS5 completo — los datos insertados antes de v7
+      // no están en el índice porque los triggers solo aplican a inserciones nuevas.
+      // Sin este rebuild, la búsqueda por nombre devuelve 0 resultados.
+      try {
+        // 1. Vaciar el índice FTS actual
+        await db.execute("INSERT INTO contactos_fts(contactos_fts) VALUES('delete-all')");
+        // 2. Repoblar desde la tabla principal
+        await db.execute('''
+          INSERT INTO contactos_fts(rowid, id, nombre, apellido, telefono, ci, provincia, municipio)
+          SELECT rowid, id, nombre, apellido, telefono, ci, provincia, municipio
+          FROM contactos_aprobados
+        ''');
+      } catch (e) {
+        debugPrint('FTS5 rebuild v8 error (non-critical): $e');
+      }
     }
     if (oldVersion < 7) {
       // FTS5 para búsqueda ultrarrápida — si falla, continuar sin FTS
@@ -299,43 +316,62 @@ class LocalDatabaseService {
     }
   }
 
-  /// Búsqueda paginada usando FTS5 exclusivamente.
-  /// Para números de teléfono usa índice por prefijo (sin LIKE '%...%').
-  /// NO hay fallback LIKE — con 1M registros sería un full scan eterno.
+  /// Búsqueda paginada.
+  /// Teléfonos → índice LIKE prefijo.
+  /// Texto → FTS5 multi-token con prefijo, fallback LIKE si FTS da 0 o falla.
   Future<List<Contacto>> buscarContactosPaginados(String query, {int offset = 0, int limit = 50}) async {
     if (query.trim().isEmpty) return [];
     final db = await database;
     final q = query.trim();
 
-    // Teléfono (solo dígitos) — usar prefijo con índice
-    final soloDigitos = RegExp(r'^\d+$').hasMatch(q);
-    if (soloDigitos) {
+    // ── Teléfono (solo dígitos) — prefijo con índice, rápido ──────────────
+    if (RegExp(r'^\d+$').hasMatch(q)) {
       final maps = await db.rawQuery(
-        '''SELECT * FROM contactos_aprobados
-           WHERE telefono LIKE ?
-           ORDER BY nombre ASC LIMIT ? OFFSET ?''',
+        'SELECT * FROM contactos_aprobados WHERE telefono LIKE ? ORDER BY nombre ASC LIMIT ? OFFSET ?',
         ['$q%', limit, offset],
       );
       return maps.map((m) => Contacto.fromJson(m)).toList();
     }
 
-    // Texto — FTS5 (O(log N), ultrarrápido en 1M registros)
+    // ── Texto — FTS5 ───────────────────────────────────────────────────────
+    // Construir query FTS5: cada palabra como token con prefijo
+    // Ej: "pedro ga" → 'pedro* ga*'  (OR implícito entre tokens)
+    // Esto encuentra "Pedro García", "García Pedro", "Pedro Galdós", etc.
+    final tokens = q.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+    final ftsParts = tokens.map((t) {
+      // Escapar comillas dobles para FTS5
+      final escaped = t.replaceAll('"', '""');
+      return '"$escaped"*';
+    }).join(' ');
+
     try {
-      // Sanitizar para FTS5: escapar caracteres especiales
-      final qFts = q.replaceAll('"', '""').replaceAll("'", "''");
       final maps = await db.rawQuery(
         '''SELECT ca.* FROM contactos_aprobados ca
            JOIN contactos_fts fts ON ca.rowid = fts.rowid
            WHERE contactos_fts MATCH ?
            ORDER BY rank LIMIT ? OFFSET ?''',
-        ['"$qFts"*', limit, offset],
+        [ftsParts, limit, offset],
       );
-      return maps.map((m) => Contacto.fromJson(m)).toList();
+      if (maps.isNotEmpty) {
+        return maps.map((m) => Contacto.fromJson(m)).toList();
+      }
+      // FTS dio 0 resultados — puede ser índice desactualizado o tildes
+      // Fallback: LIKE en nombre+apellido (aceptable para búsquedas manuales,
+      // no para scroll infinito de 70k registros)
     } catch (e) {
       debugPrint('FTS5 buscar error: $e');
-      // NO fallback LIKE — retornar vacío con mensaje
-      return [];
     }
+
+    // ── Fallback LIKE — solo para búsqueda manual (resultado < 200) ────────
+    final like = '%$q%';
+    final maps = await db.rawQuery(
+      '''SELECT * FROM contactos_aprobados
+         WHERE nombre LIKE ? OR apellido LIKE ?
+            OR (nombre || ' ' || apellido) LIKE ?
+         ORDER BY nombre ASC LIMIT ? OFFSET ?''',
+      [like, like, like, limit, offset],
+    );
+    return maps.map((m) => Contacto.fromJson(m)).toList();
   }
 
   Future<List<Contacto>> buscarContactos(String query) async {
