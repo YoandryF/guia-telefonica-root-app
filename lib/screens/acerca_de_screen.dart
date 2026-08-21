@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class AcercaDeScreen extends StatefulWidget {
@@ -14,6 +15,11 @@ class _AcercaDeScreenState extends State<AcercaDeScreen> {
   String _version = '';
   List<Map<String, dynamic>> _releases = [];
   bool _cargando = true;
+  String? _errorMsg;
+
+  static const _cacheKey    = 'acerca_releases_cache';
+  static const _cacheTimeKey = 'acerca_releases_ts';
+  static const _cacheTtl    = Duration(hours: 6);
 
   @override
   void initState() {
@@ -21,32 +27,87 @@ class _AcercaDeScreenState extends State<AcercaDeScreen> {
     _cargar();
   }
 
-  Future<void> _cargar() async {
-    final info = await PackageInfo.fromPlatform();
-    setState(() => _version = info.version);
+  Future<void> _cargar({bool forzar = false}) async {
+    setState(() { _cargando = true; _errorMsg = null; });
 
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) setState(() => _version = info.version);
+
+    // 1. Intentar desde caché local primero
+    if (!forzar) {
+      final cached = await _leerCache();
+      if (cached != null) {
+        if (mounted) setState(() { _releases = cached; _cargando = false; });
+        return;
+      }
+    }
+
+    // 2. Fetch desde GitHub
     try {
       final resp = await http.get(
-        Uri.parse('https://api.github.com/repos/YoandryF/guia-telefonica-root-app/releases'),
-        headers: {'Accept': 'application/vnd.github.v3+json'},
-      ).timeout(const Duration(seconds: 10));
+        Uri.parse('https://api.github.com/repos/YoandryF/guia-telefonica-root-app/releases?per_page=30'),
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'GuiaTelefonicaApp/1.0',
+        },
+      ).timeout(const Duration(seconds: 20));
 
       if (resp.statusCode == 200) {
         final data = json.decode(resp.body) as List;
-        setState(() {
-          _releases = data.map((r) => {
-            'tag': r['tag_name'] ?? '',
-            'fecha': r['published_at'] ?? '',
-            'body': r['body'] ?? '',
-          }).toList().cast<Map<String, dynamic>>();
-          _cargando = false;
+        final releases = data.map((r) => {
+          'tag':   r['tag_name']    ?? '',
+          'fecha': r['published_at'] ?? '',
+          'body':  r['body']        ?? '',
+          'name':  r['name']        ?? '',
+        }).toList().cast<Map<String, dynamic>>();
+
+        await _guardarCache(releases);
+        if (mounted) setState(() { _releases = releases; _cargando = false; });
+      } else if (resp.statusCode == 403 || resp.statusCode == 429) {
+        // Rate limit de GitHub — usar caché aunque esté vencida
+        final cached = await _leerCache(ignorarTtl: true);
+        if (mounted) setState(() {
+          _releases  = cached ?? [];
+          _cargando  = false;
+          _errorMsg  = cached != null
+              ? 'Datos desde caché (límite GitHub alcanzado)'
+              : 'Límite de consultas de GitHub alcanzado. Intenta más tarde.';
         });
       } else {
-        setState(() => _cargando = false);
+        throw Exception('HTTP ${resp.statusCode}');
       }
-    } catch (_) {
-      setState(() => _cargando = false);
+    } catch (e) {
+      // Red caída — intentar caché vencida
+      final cached = await _leerCache(ignorarTtl: true);
+      if (mounted) setState(() {
+        _releases = cached ?? [];
+        _cargando = false;
+        _errorMsg = cached != null
+            ? 'Sin conexión — mostrando último historial guardado'
+            : 'Sin conexión y sin historial guardado';
+      });
     }
+  }
+
+  Future<List<Map<String, dynamic>>?> _leerCache({bool ignorarTtl = false}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_cacheKey);
+    final ts  = prefs.getInt(_cacheTimeKey) ?? 0;
+    if (raw == null) return null;
+    final edad = DateTime.now().millisecondsSinceEpoch - ts;
+    if (!ignorarTtl && edad > _cacheTtl.inMilliseconds) return null;
+    try {
+      final list = json.decode(raw) as List;
+      return list.cast<Map<String, dynamic>>();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _guardarCache(List<Map<String, dynamic>> releases) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_cacheKey, json.encode(releases));
+    await prefs.setInt(_cacheTimeKey, DateTime.now().millisecondsSinceEpoch);
   }
 
   @override
@@ -54,7 +115,17 @@ class _AcercaDeScreenState extends State<AcercaDeScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Acerca de')),
+      appBar: AppBar(
+        title: const Text('Acerca de'),
+        actions: [
+          if (!_cargando)
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Actualizar historial',
+              onPressed: () => _cargar(forzar: true),
+            ),
+        ],
+      ),
       body: SingleChildScrollView(
         child: Column(
           children: [
@@ -110,12 +181,38 @@ class _AcercaDeScreenState extends State<AcercaDeScreen> {
             ),
             const SizedBox(height: 8),
 
+            if (_errorMsg != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, size: 14, color: Colors.orange),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text(_errorMsg!, style: const TextStyle(fontSize: 11, color: Colors.orange))),
+                  ],
+                ),
+              ),
+
             if (_cargando)
               const Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())
             else if (_releases.isEmpty)
-              const Padding(padding: EdgeInsets.all(32), child: Text('No se pudo cargar el historial'))
+              Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  children: [
+                    const Icon(Icons.cloud_off, size: 48, color: Colors.grey),
+                    const SizedBox(height: 12),
+                    const Text('No se pudo cargar el historial', style: TextStyle(color: Colors.grey)),
+                    const SizedBox(height: 12),
+                    FilledButton.tonal(
+                      onPressed: () => _cargar(forzar: true),
+                      child: const Text('Reintentar'),
+                    ),
+                  ],
+                ),
+              )
             else
-              ..._releases.take(15).map((r) => _ReleaseCard(release: r)),
+              ..._releases.take(20).map((r) => _ReleaseCard(release: r)),
 
             const SizedBox(height: 32),
           ],
@@ -171,9 +268,11 @@ class _ReleaseCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tag = release['tag'] ?? '';
-    final body = release['body'] ?? '';
-    final fecha = _formatFecha(release['fecha'] ?? '');
+    final tag  = release['tag']  as String? ?? '';
+    final name = release['name'] as String? ?? '';
+    final body = release['body'] as String? ?? '';
+    final fecha = _formatFecha(release['fecha'] as String? ?? '');
+    final titulo = name.isNotEmpty && name != tag ? name : tag;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -193,6 +292,9 @@ class _ReleaseCard extends StatelessWidget {
                     ),
                     child: Text(tag, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0284C7))),
                   ),
+                  const SizedBox(width: 8),
+                  if (titulo != tag)
+                    Expanded(child: Text(titulo, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis)),
                   const Spacer(),
                   Text(fecha, style: const TextStyle(fontSize: 11, color: Colors.grey)),
                 ],
