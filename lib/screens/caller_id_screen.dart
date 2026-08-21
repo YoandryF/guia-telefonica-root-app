@@ -85,11 +85,12 @@ class _CallerIdScreenState extends State<CallerIdScreen> {
       }
 
       // Disponibles = contactos locales que NO están en la agenda
-      // Para no cargar 900k, paginar y filtrar
+      // Límite: máximo 10000 para no congelar la UI — suficiente para sync de agenda
       final disponibles = <Contacto>[];
       int offset = 0;
       const pageSize = 500;
-      while (true) {
+      const maxContactos = 10000;
+      while (disponibles.length < maxContactos) {
         final pagina = await _localDb.getContactosPaginados(offset: offset, limit: pageSize);
         if (pagina.isEmpty) break;
         for (final c in pagina) {

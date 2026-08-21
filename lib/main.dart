@@ -7,7 +7,6 @@ import 'providers/theme_provider.dart';
 import 'services/background_sync_service.dart';
 import 'services/ubicacion_service.dart';
 import 'widgets/sync_banner.dart';
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -44,28 +43,16 @@ class _GuiaTelefonicaAppState extends ConsumerState<GuiaTelefonicaApp> {
   @override
   Widget build(BuildContext context) {
     final themeMode = ref.watch(themeModeProvider);
-    final router    = ref.watch(routerProvider);
 
     return MaterialApp.router(
       title: 'Guía Telefónica',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: Colors.blue,
-        brightness: Brightness.light,
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: Colors.blue,
-        brightness: Brightness.dark,
-      ),
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.blue, brightness: Brightness.light),
+      darkTheme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.blue, brightness: Brightness.dark),
       themeMode: themeMode,
       routerConfig: router,
-      // SyncServiceListener + SyncBanner via builder envuelven TODAS las rutas
       builder: (context, child) => SyncServiceListener(
-        child: SyncBanner(
-          child: child ?? const SizedBox(),
-        ),
+        child: SyncBanner(child: child ?? const SizedBox()),
       ),
     );
   }

@@ -157,12 +157,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _resincronizarTodo() async {
     final syncState = ref.read(syncProvider);
     if (syncState.enProgreso) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('⏳ Sincronización en curso — espera o cancela desde el banner')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('⏳ Sincronización en curso — espera o cancela desde el banner')),
+        );
+      }
       return;
     }
-    await BackgroundSyncService.iniciarSync(ref);
+    // Usar unawaited para no bloquear si el widget se desmonta
+    BackgroundSyncService.iniciarSync(ref).catchError((e) {
+      debugPrint('resync error: $e');
+    });
   }
 
   Future<void> _sincronizar() async {
@@ -424,7 +429,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Observar providers
     final filtrosState = ref.watch(filtrosProvider);
     final contactosAsync = ref.watch(contactosProvider);
-    final contactosFiltrados = ref.watch(contactosFiltradosProvider);
+    // contactosFiltradosProvider filtra en memoria — solo útil para listas pequeñas
+    // Para búsqueda real usamos busquedaContactosProvider con FTS5
+    // final contactosFiltrados = ref.watch(contactosFiltradosProvider);
 
     // Derivar estado del provider
     final bool cargando = contactosAsync.isLoading && _contactosAcumulados.isEmpty;
@@ -453,8 +460,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Determinar qué contactos mostrar
     final List<Contacto> visibles;
     if (filtrosState.query.isNotEmpty) {
-      // Cuando hay búsqueda activa, usar el filtrado en memoria
-      visibles = contactosFiltrados;
+      // Búsqueda activa — usar FTS5 via busquedaContactosProvider
+      // contactosFiltradosProvider solo filtra en memoria (50 contactos),
+      // busquedaContactosProvider busca en toda la BD local via FTS5
+      final busquedaAsync = ref.watch(busquedaContactosProvider(filtrosState.query));
+      visibles = busquedaAsync.when(
+        data: (lista) => lista,
+        loading: () => [],
+        error: (_, __) => [],
+      );
     } else {
       visibles = _contactosAcumulados;
     }
