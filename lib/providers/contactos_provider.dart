@@ -38,6 +38,8 @@ class ContactosState {
 class ContactosNotifier extends AsyncNotifier<ContactosState> {
   static const int _pageSize = 50;
   final ContactosRepository _repo = ContactosRepository();
+  bool _cargandoMas = false;
+  bool get cargandoMas => _cargandoMas;
 
   @override
   Future<ContactosState> build() async {
@@ -71,15 +73,19 @@ class ContactosNotifier extends AsyncNotifier<ContactosState> {
     );
   }
 
-  /// Carga la siguiente página
+  /// Carga la siguiente página — sin emitir loading para no saltar la lista
   Future<void> siguientePagina() async {
     final current = state.valueOrNull;
-    if (current == null) return;
+    if (current == null || _cargandoMas) return;
     final maxPagina = (current.total / _pageSize).ceil() - 1;
     if (current.paginaActual >= maxPagina) return;
 
-    state = const AsyncValue.loading();
-    state = AsyncValue.data(await _cargarPagina(current.paginaActual + 1));
+    _cargandoMas = true;
+    // Emitir el mismo data pero con loading=true para que home_screen muestre spinner al final
+    state = AsyncValue.data(current.copyWith(loading: true));
+    final siguiente = await _cargarPagina(current.paginaActual + 1);
+    _cargandoMas = false;
+    state = AsyncValue.data(siguiente);
   }
 
   /// Carga la página anterior

@@ -234,8 +234,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final contactosAsync = ref.read(contactosProvider);
     final contactosState = contactosAsync.valueOrNull;
     if (contactosState == null) return;
+    if (contactosState.loading) return;  // ya está cargando más
     if (_contactosAcumulados.length >= contactosState.total) return;
-    // Evitar llamadas duplicadas mientras carga
     if (contactosAsync.isLoading) return;
 
     await ref.read(contactosProvider.notifier).siguientePagina();
@@ -435,8 +435,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     // Derivar estado del provider
     final int filtrosActivosCount = _filtrosActivos;
-    // Mostrar spinner si está cargando Y (lista vacía O hay filtros activos que acaban de cambiar)
-    final bool cargando = contactosAsync.isLoading && (_contactosAcumulados.isEmpty || filtrosActivosCount > 0);
+    // cargando = spinner central, solo cuando no hay nada que mostrar todavía
+    final bool cargando = contactosAsync.isLoading && _contactosAcumulados.isEmpty;
+    // cargandoMas = spinner al final de lista (scroll infinito)
+    final bool cargandoMas = contactosAsync.valueOrNull?.loading == true;
     final int totalContactos = contactosAsync.valueOrNull?.total ?? 0;
 
     // Acumular contactos para scroll infinito
@@ -774,7 +776,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         onRefresh: _sincronizar,
                         child: ListView.builder(
                           controller: _scrollController,
-                          itemCount: visibles.length + (hayMas ? 1 : 0),
+                          itemCount: visibles.length + (hayMas || cargandoMas ? 1 : 0),
                           itemBuilder: (context, index) {
                             if (index == visibles.length) {
                               return const Padding(
