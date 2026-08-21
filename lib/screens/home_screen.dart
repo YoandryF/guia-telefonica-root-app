@@ -467,6 +467,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     // Determinar qué contactos mostrar
     final List<Contacto> visibles;
+    bool busquedaCargando = false;
     if (filtrosState.query.isNotEmpty) {
       final busquedaAsync = ref.watch(busquedaContactosProvider(BusquedaParams(
         query:          filtrosState.query,
@@ -475,11 +476,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         municipio:      filtrosState.municipio,
         soloReportados: filtrosState.soloReportados,
       )));
-      visibles = busquedaAsync.when(
-        data: (lista) => lista,
-        loading: () => [],
-        error: (_, __) => [],
-      );
+      busquedaCargando = busquedaAsync.isLoading;
+      visibles = busquedaAsync.valueOrNull ?? [];
     } else {
       visibles = _contactosAcumulados;
     }
@@ -771,7 +769,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
           // Lista de contactos
           Expanded(
-            child: cargando
+            child: (cargando || busquedaCargando)
                 ? const Center(child: CircularProgressIndicator())
                 : visibles.isEmpty
                     ? const Center(child: Text('No se encontraron contactos'))
