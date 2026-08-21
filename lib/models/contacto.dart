@@ -98,4 +98,43 @@ class Contacto {
     if (pais != null && pais!.isNotEmpty && pais != 'Cuba') partes.add(pais!);
     return partes.isNotEmpty ? partes.join(', ') : null;
   }
+
+  // ─── Lógica de negocio ────────────────────────────────────
+
+  /// Nivel de riesgo derivado del estado de reportes
+  NivelRiesgo get nivelRiesgo {
+    if (reporteConfirmado) return NivelRiesgo.confirmado;
+    if (tieneReportes)     return NivelRiesgo.sospechoso;
+    return NivelRiesgo.limpio;
+  }
+
+  /// El contacto tiene reportes activos o confirmados
+  bool get esRiesgoso => tieneReportes || reporteConfirmado;
+
+  /// El usuario puede reportar este contacto (está aprobado y no es duplicado)
+  bool get puedeReportarse => estado == 'aprobado';
+
+  /// El contacto tiene ubicación completa (provincia + municipio)
+  bool get tieneUbicacion =>
+      (provincia != null && provincia!.isNotEmpty) ||
+      (municipio != null && municipio!.isNotEmpty);
+
+  /// Texto de estado legible
+  String get estadoLabel {
+    switch (estado) {
+      case 'aprobado':  return 'Aprobado';
+      case 'pendiente': return 'Pendiente';
+      case 'rechazado': return 'Rechazado';
+      default:          return estado;
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Enum de nivel de riesgo — usado en UI para colores e iconos
+// ─────────────────────────────────────────────────────────────
+enum NivelRiesgo {
+  limpio,      // sin reportes
+  sospechoso,  // tiene reportes pendientes
+  confirmado,  // reporte aprobado por admin
 }
