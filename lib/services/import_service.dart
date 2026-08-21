@@ -41,22 +41,43 @@ class ImportService {
     return result?.files.first;
   }
 
+  /// Lee el contenido de un archivo detectando el encoding automáticamente.
+  /// Intenta UTF-8 primero. Si detecta caracteres de reemplazo (U+FFFD, que
+  /// aparecen como ??? cuando se muestra), reintenta con Latin-1/ISO-8859-1
+  /// que es el encoding común de CSVs exportados desde Excel en Windows.
+  Future<String> _leerConEncodingDetectado(String path) async {
+    final bytes = await File(path).readAsBytes();
+
+    // Intentar UTF-8 estricto primero
+    try {
+      final texto = utf8.decode(bytes, allowMalformed: false);
+      // Verificar que no haya caracteres de reemplazo U+FFFD (indica encoding incorrecto)
+      if (!texto.contains('\uFFFD')) return texto;
+    } catch (_) {
+      // UTF-8 falló — continuar con Latin-1
+    }
+
+    // Fallback: Latin-1 / ISO-8859-1 (cada byte es un codepoint directo)
+    // Esto cubre Windows-1252 para los caracteres comunes del español
+    return String.fromCharCodes(bytes);
+  }
+
   Future<List<Map<String, String>>> preview(PlatformFile file) async {
-    final contenido = await File(file.path!).readAsString();
+    final contenido = await _leerConEncodingDetectado(file.path!);
     if (file.extension == 'csv') return _parsearCSV(contenido).take(5).toList();
     if (file.extension == 'json') return _parsearJSON(contenido).take(5).toList();
     return [];
   }
 
   Future<int> contarRegistros(PlatformFile file) async {
-    final contenido = await File(file.path!).readAsString();
+    final contenido = await _leerConEncodingDetectado(file.path!);
     if (file.extension == 'csv') return _parsearCSV(contenido).length;
     if (file.extension == 'json') return _parsearJSON(contenido).length;
     return 0;
   }
 
   Stream<ImportResult> importarStream(PlatformFile file, {int desdeChunk = 0}) async* {
-    final contenido = await File(file.path!).readAsString();
+    final contenido = await _leerConEncodingDetectado(file.path!);
     List<Map<String, String>> contactos;
 
     if (file.extension == 'csv') {
@@ -88,8 +109,7 @@ class ImportService {
     for (var i = desdeChunk; i < chunks.length; i++) {
       final chunk = chunks[i];
       final batch = chunk.map((c) => Sanitizer.contacto(c)).where((c) {
-        // Validar y registrar motivo de rechazo
-        final nombre = c['nombre'] ?? '';
+        final nombre   = c['nombre']   ?? '';
         final apellido = c['apellido'] ?? '';
         final telefono = c['telefono'] ?? '';
         if (nombre.length < 2) {
@@ -102,6 +122,11 @@ class ImportService {
         }
         if (telefono.length < 5) {
           registrosConError.add({...c, '_motivo': 'Teléfono inválido: "$telefono"'});
+          return false;
+        }
+        // Rechazar datos con encoding corrupto (???) antes de subir a Supabase
+        if (nombre.contains('?') || apellido.contains('?') || nombre.contains('\uFFFD') || apellido.contains('\uFFFD')) {
+          registrosConError.add({...c, '_motivo': 'Encoding corrupto — revisar archivo CSV (usar UTF-8)'});
           return false;
         }
         return true;
