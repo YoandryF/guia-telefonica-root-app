@@ -319,57 +319,76 @@ class LocalDatabaseService {
   /// Búsqueda paginada.
   /// Teléfonos → índice LIKE prefijo.
   /// Texto → FTS5 multi-token con prefijo, fallback LIKE si FTS da 0 o falla.
-  Future<List<Contacto>> buscarContactosPaginados(String query, {int offset = 0, int limit = 50}) async {
+  /// Respeta filtros de categoría, provincia, municipio y soloReportados.
+  Future<List<Contacto>> buscarContactosPaginados(
+    String query, {
+    int offset = 0,
+    int limit = 50,
+    String? categoriaId,
+    String? provincia,
+    String? municipio,
+    bool soloReportados = false,
+  }) async {
     if (query.trim().isEmpty) return [];
     final db = await database;
     final q = query.trim();
 
-    // ── Teléfono (solo dígitos) — prefijo con índice, rápido ──────────────
+    // Construir cláusula WHERE para filtros adicionales
+    final filtroWhere = <String>[];
+    final filtroArgs  = <dynamic>[];
+    if (categoriaId != null) { filtroWhere.add('ca.categoria_id = ?'); filtroArgs.add(categoriaId); }
+    if (provincia   != null) { filtroWhere.add('UPPER(ca.provincia) = UPPER(?)'); filtroArgs.add(provincia); }
+    if (municipio   != null) { filtroWhere.add('UPPER(ca.municipio) = UPPER(?)'); filtroArgs.add(municipio); }
+    if (soloReportados)      { filtroWhere.add('ca.tiene_reportes = 1'); }
+    final filtroSql = filtroWhere.isNotEmpty ? ' AND ${filtroWhere.join(' AND ')}' : '';
+
+    // ── Teléfono (solo dígitos) — prefijo con índice ──────────────────────
     if (RegExp(r'^\d+$').hasMatch(q)) {
+      // Para teléfono la tabla no tiene alias, reescribir sin 'ca.'
+      final telWhere = <String>['telefono LIKE ?'];
+      final telArgs  = <dynamic>['$q%'];
+      if (categoriaId != null) { telWhere.add('categoria_id = ?'); telArgs.add(categoriaId); }
+      if (provincia   != null) { telWhere.add('UPPER(provincia) = UPPER(?)'); telArgs.add(provincia); }
+      if (municipio   != null) { telWhere.add('UPPER(municipio) = UPPER(?)'); telArgs.add(municipio); }
+      if (soloReportados)      { telWhere.add('tiene_reportes = 1'); }
+      telArgs.addAll([limit, offset]);
       final maps = await db.rawQuery(
-        'SELECT * FROM contactos_aprobados WHERE telefono LIKE ? ORDER BY nombre ASC LIMIT ? OFFSET ?',
-        ['$q%', limit, offset],
+        'SELECT * FROM contactos_aprobados WHERE ${telWhere.join(' AND ')} ORDER BY nombre ASC LIMIT ? OFFSET ?',
+        telArgs,
       );
       return maps.map((m) => Contacto.fromJson(m)).toList();
     }
 
-    // ── Texto — FTS5 ───────────────────────────────────────────────────────
-    // Construir query FTS5: cada palabra como token con prefijo
-    // Ej: "pedro ga" → 'pedro* ga*'  (OR implícito entre tokens)
-    // Esto encuentra "Pedro García", "García Pedro", "Pedro Galdós", etc.
-    final tokens = q.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
-    final ftsParts = tokens.map((t) {
-      // Escapar comillas dobles para FTS5
-      final escaped = t.replaceAll('"', '""');
-      return '"$escaped"*';
-    }).join(' ');
+    // ── Texto — FTS5 + filtros ────────────────────────────────────────────
+    final tokens  = q.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+    final ftsParts = tokens.map((t) => '"${t.replaceAll('"', '""')}"*').join(' ');
 
     try {
       final maps = await db.rawQuery(
         '''SELECT ca.* FROM contactos_aprobados ca
            JOIN contactos_fts fts ON ca.rowid = fts.rowid
-           WHERE contactos_fts MATCH ?
+           WHERE contactos_fts MATCH ?$filtroSql
            ORDER BY rank LIMIT ? OFFSET ?''',
-        [ftsParts, limit, offset],
+        [ftsParts, ...filtroArgs, limit, offset],
       );
       if (maps.isNotEmpty) {
         return maps.map((m) => Contacto.fromJson(m)).toList();
       }
-      // FTS dio 0 resultados — puede ser índice desactualizado o tildes
-      // Fallback: LIKE en nombre+apellido (aceptable para búsquedas manuales,
-      // no para scroll infinito de 70k registros)
     } catch (e) {
       debugPrint('FTS5 buscar error: $e');
     }
 
-    // ── Fallback LIKE — solo para búsqueda manual (resultado < 200) ────────
-    final like = '%$q%';
+    // ── Fallback LIKE con filtros ─────────────────────────────────────────
+    final likeWhere = <String>['(nombre LIKE ? OR apellido LIKE ? OR (nombre || \' \' || apellido) LIKE ?)'];
+    final likeArgs  = <dynamic>['%$q%', '%$q%', '%$q%'];
+    if (categoriaId != null) { likeWhere.add('categoria_id = ?'); likeArgs.add(categoriaId); }
+    if (provincia   != null) { likeWhere.add('UPPER(provincia) = UPPER(?)'); likeArgs.add(provincia); }
+    if (municipio   != null) { likeWhere.add('UPPER(municipio) = UPPER(?)'); likeArgs.add(municipio); }
+    if (soloReportados)      { likeWhere.add('tiene_reportes = 1'); }
+    likeArgs.addAll([limit, offset]);
     final maps = await db.rawQuery(
-      '''SELECT * FROM contactos_aprobados
-         WHERE nombre LIKE ? OR apellido LIKE ?
-            OR (nombre || ' ' || apellido) LIKE ?
-         ORDER BY nombre ASC LIMIT ? OFFSET ?''',
-      [like, like, like, limit, offset],
+      'SELECT * FROM contactos_aprobados WHERE ${likeWhere.join(' AND ')} ORDER BY nombre ASC LIMIT ? OFFSET ?',
+      likeArgs,
     );
     return maps.map((m) => Contacto.fromJson(m)).toList();
   }

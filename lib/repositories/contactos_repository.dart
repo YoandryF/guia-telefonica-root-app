@@ -41,9 +41,24 @@ class ContactosRepository {
     return _local.buscarPorTelefono(telefono);
   }
 
-  Future<List<Contacto>> buscar(String query, {int offset = 0, int limit = 50}) {
+  Future<List<Contacto>> buscar(String query, {
+    int offset = 0,
+    int limit = 50,
+    String? categoriaId,
+    String? provincia,
+    String? municipio,
+    bool soloReportados = false,
+  }) {
     if (query.trim().isEmpty) return Future.value([]);
-    return _local.buscarContactosPaginados(query.trim(), offset: offset, limit: limit);
+    return _local.buscarContactosPaginados(
+      query.trim(),
+      offset: offset,
+      limit: limit,
+      categoriaId: categoriaId,
+      provincia: provincia,
+      municipio: municipio,
+      soloReportados: soloReportados,
+    );
   }
 
   Future<int> count({

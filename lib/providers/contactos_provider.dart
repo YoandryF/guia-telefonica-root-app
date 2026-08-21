@@ -142,8 +142,43 @@ final contactosFiltradosProvider = Provider<List<Contacto>>((ref) {
   );
 });
 
+/// Parámetros de búsqueda para busquedaContactosProvider
+class BusquedaParams {
+  final String query;
+  final String? categoriaId;
+  final String? provincia;
+  final String? municipio;
+  final bool soloReportados;
+
+  const BusquedaParams({
+    required this.query,
+    this.categoriaId,
+    this.provincia,
+    this.municipio,
+    this.soloReportados = false,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is BusquedaParams &&
+      other.query == query &&
+      other.categoriaId == categoriaId &&
+      other.provincia == provincia &&
+      other.municipio == municipio &&
+      other.soloReportados == soloReportados;
+
+  @override
+  int get hashCode => Object.hash(query, categoriaId, provincia, municipio, soloReportados);
+}
+
 final busquedaContactosProvider =
-    FutureProvider.family<List<Contacto>, String>((ref, query) async {
-  if (query.trim().length < 2) return [];
-  return ContactosRepository().buscar(query.trim());
+    FutureProvider.family<List<Contacto>, BusquedaParams>((ref, params) async {
+  if (params.query.trim().length < 2) return [];
+  return ContactosRepository().buscar(
+    params.query.trim(),
+    categoriaId:    params.categoriaId,
+    provincia:      params.provincia,
+    municipio:      params.municipio,
+    soloReportados: params.soloReportados,
+  );
 });

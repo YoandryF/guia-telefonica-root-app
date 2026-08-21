@@ -468,10 +468,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Determinar qué contactos mostrar
     final List<Contacto> visibles;
     if (filtrosState.query.isNotEmpty) {
-      // Búsqueda activa — usar FTS5 via busquedaContactosProvider
-      // contactosFiltradosProvider solo filtra en memoria (50 contactos),
-      // busquedaContactosProvider busca en toda la BD local via FTS5
-      final busquedaAsync = ref.watch(busquedaContactosProvider(filtrosState.query));
+      final busquedaAsync = ref.watch(busquedaContactosProvider(BusquedaParams(
+        query:          filtrosState.query,
+        categoriaId:    filtrosState.categoriaId,
+        provincia:      filtrosState.provincia,
+        municipio:      filtrosState.municipio,
+        soloReportados: filtrosState.soloReportados,
+      )));
       visibles = busquedaAsync.when(
         data: (lista) => lista,
         loading: () => [],
