@@ -200,6 +200,31 @@ class LocalDatabaseService {
 
   // === CONTACTOS ===
 
+  /// Normaliza texto de ubicación: trim + Title Case básico.
+  /// Elimina diferencias de mayúsculas/minúsculas y formato entre la BD remota y el JSON local.
+  /// Ej: 'CALIMETE' → 'Calimete', 'plaza de la revolucion' → 'Plaza de la Revolución' (sin tildes = sin tilde, consistente)
+  static String? _normUbicacion(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    final s = raw.trim();
+    // Title Case palabra por palabra
+    final preposiciones = {'de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'o'};
+    final palabras = s.split(' ');
+    final resultado = palabras.asMap().entries.map((entry) {
+      final i = entry.key;
+      final w = entry.value;
+      if (w.isEmpty) return w;
+      final lower = w.toLowerCase();
+      // Preposiciones en minúsculas excepto si es la primera o única palabra
+      if (i > 0 && preposiciones.contains(lower)) return lower;
+      return lower[0].toUpperCase() + lower.substring(1);
+    }).join(' ');
+    return resultado;
+  }
+
+  /// Expuesto solo para tests unitarios
+  // ignore: non_constant_identifier_names
+  static String? normUbicacionTest(String? raw) => _normUbicacion(raw);
+
   /// Carga todos los contactos — usar solo cuando realmente se necesitan todos
   /// (sync, escanear agenda, etc). Para la UI usar getContactosPaginados.
   Future<List<Contacto>> getAllContactos() async {
@@ -236,8 +261,9 @@ class LocalDatabaseService {
       final where = <String>[];
       final args = <dynamic>[];
       if (categoriaId != null) { where.add('categoria_id = ?'); args.add(categoriaId); }
-      if (provincia != null) { where.add('provincia = ?'); args.add(provincia); }
-      if (municipio != null) { where.add('municipio = ?'); args.add(municipio); }
+      // UPPER() para tolerar mezcla de mayúsculas/minúsculas en la BD
+      if (provincia != null) { where.add('UPPER(provincia) = UPPER(?)'); args.add(provincia); }
+      if (municipio != null) { where.add('UPPER(municipio) = UPPER(?)'); args.add(municipio); }
       if (soloReportados) { where.add('tiene_reportes = 1'); }
       args.addAll([limit, offset]);
       final maps = await db.rawQuery(
@@ -258,8 +284,9 @@ class LocalDatabaseService {
       final where = <String>[];
       final args = <dynamic>[];
       if (categoriaId != null) { where.add('categoria_id = ?'); args.add(categoriaId); }
-      if (provincia != null) { where.add('provincia = ?'); args.add(provincia); }
-      if (municipio != null) { where.add('municipio = ?'); args.add(municipio); }
+      // UPPER() para tolerar mezcla de mayúsculas/minúsculas en la BD
+      if (provincia != null) { where.add('UPPER(provincia) = UPPER(?)'); args.add(provincia); }
+      if (municipio != null) { where.add('UPPER(municipio) = UPPER(?)'); args.add(municipio); }
       if (soloReportados) { where.add('tiene_reportes = 1'); }
       final result = await db.rawQuery(
         'SELECT COUNT(*) as c FROM contactos_aprobados${where.isNotEmpty ? ' WHERE ${where.join(' AND ')}' : ''}',
@@ -355,8 +382,8 @@ class LocalDatabaseService {
         'fecha_creacion': contacto.fechaCreacion?.toIso8601String(),
         'fecha_aprobacion': contacto.fechaAprobacion?.toIso8601String(),
         'pais': contacto.pais,
-        'provincia': contacto.provincia,
-        'municipio': contacto.municipio,
+        'provincia': _normUbicacion(contacto.provincia),
+        'municipio': _normUbicacion(contacto.municipio),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -365,11 +392,11 @@ class LocalDatabaseService {
   Future<void> sincronizarBatch(List<Contacto> contactos) async {
     final db = await database;
     const chunkSize = 500;
-    // Procesar en chunks para no saturar memoria en gama baja
     for (var i = 0; i < contactos.length; i += chunkSize) {
       final chunk = contactos.sublist(i, i + chunkSize > contactos.length ? contactos.length : i + chunkSize);
       final batch = db.batch();
       for (final contacto in chunk) {
+        // Normalizar provincia/municipio al guardar para que coincidan con el JSON local
         batch.insert(
           'contactos_aprobados',
           {
@@ -385,8 +412,8 @@ class LocalDatabaseService {
             'fecha_creacion': contacto.fechaCreacion?.toIso8601String(),
             'fecha_aprobacion': contacto.fechaAprobacion?.toIso8601String(),
             'pais': contacto.pais,
-            'provincia': contacto.provincia,
-            'municipio': contacto.municipio,
+            'provincia': _normUbicacion(contacto.provincia),
+            'municipio': _normUbicacion(contacto.municipio),
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
