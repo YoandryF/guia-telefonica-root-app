@@ -1,7 +1,7 @@
 name: guia_telefonica
 description: Guía Telefónica Colaborativa - Offline-first con Supabase
 publish_to: 'none'
-version: 4.3.9+89
+version: 4.4.0+90
 
 environment:
   sdk: '>=3.4.0 <4.0.0'

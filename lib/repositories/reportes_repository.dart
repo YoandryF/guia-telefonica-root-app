@@ -60,4 +60,25 @@ class ReportesRepository {
     final pendientes = await _remote.getReportesPendientes();
     return pendientes.length;
   }
+
+  // Métodos adicionales para reportes_admin_screen
+  Future<List<Map<String, dynamic>>> getAgrupados({String filtro = 'todos', String orden = 'recientes'}) {
+    return _remote.getReportesAgrupados(filtro: filtro, orden: orden);
+  }
+
+  Future<List<Map<String, dynamic>>> getDeContacto({required String contactoId, String? filtroEstado}) {
+    return _remote.getReportesDeContacto(contactoId, filtroEstado: filtroEstado);
+  }
+
+  Future<void> eliminar(String id) {
+    return _remote.eliminarReporte(id);
+  }
+
+  Future<void> reactivar(String id) {
+    return _remote.reactivarReporte(id);
+  }
+
+  Future<Map<String, dynamic>> getStatsReportador(String identificador) {
+    return _remote.getStatsReportador(identificador);
+  }
 }

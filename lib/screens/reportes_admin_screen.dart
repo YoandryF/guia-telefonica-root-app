@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../services/supabase_service.dart';
+import '../repositories/reportes_repository.dart';
 import '../services/telegram_evidence_service.dart';
 
 class ReportesAdminScreen extends StatefulWidget {
@@ -10,11 +10,11 @@ class ReportesAdminScreen extends StatefulWidget {
 }
 
 class _ReportesAdminScreenState extends State<ReportesAdminScreen> {
-  final _supabase = SupabaseService();
+  final _repo = ReportesRepository();
   List<Map<String, dynamic>> _agrupados = [];
   bool _cargando = true;
-  String _orden = 'prioridad'; // prioridad, mas_reportes, recientes
-  String _filtro = 'pendiente'; // pendiente, revisado, resuelto, todos
+  String _orden = 'prioridad';
+  String _filtro = 'pendiente';
 
   @override
   void initState() {
@@ -25,7 +25,7 @@ class _ReportesAdminScreenState extends State<ReportesAdminScreen> {
   Future<void> _cargar() async {
     setState(() => _cargando = true);
     try {
-      final response = await _supabase.getReportesAgrupados(filtro: _filtro, orden: _orden);
+      final response = await _repo.getAgrupados(filtro: _filtro, orden: _orden);
       setState(() { _agrupados = response; _cargando = false; });
     } catch (e) {
       setState(() => _cargando = false);
@@ -182,7 +182,7 @@ class _ReportesContactoScreen extends StatefulWidget {
 }
 
 class _ReportesContactoScreenState extends State<_ReportesContactoScreen> {
-  final _supabase = SupabaseService();
+  final _repo = ReportesRepository();
   List<Map<String, dynamic>> _reportes = [];
   Set<String> _seleccionados = {};
   bool _cargando = true;
@@ -201,11 +201,9 @@ class _ReportesContactoScreenState extends State<_ReportesContactoScreen> {
 
   Future<void> _cargar() async {
     setState(() => _cargando = true);
-    final todos = await _supabase.getReportesDeContacto(
-      widget.contactoId,
-      filtroMotivo: _filtroMotivo,
+    final todos = await _repo.getDeContacto(
+      contactoId: widget.contactoId,
       filtroEstado: _filtroEstado,
-      soloConEvidencia: _soloConEvidencia,
     );
     setState(() { _reportes = todos; _cargando = false; _seleccionados.clear(); });
   }
@@ -256,7 +254,7 @@ class _ReportesContactoScreenState extends State<_ReportesContactoScreen> {
   Future<void> _aprobar(String id) async {
     final nota = await _pedirNota('✅ Aprobar');
     if (nota == null) return;
-    await _supabase.aprobarReporte(id, notaAdmin: nota);
+    await _repo.aprobar(id, notaAdmin: nota);
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠️ Aprobado')));
     _cargar();
   }
@@ -264,21 +262,23 @@ class _ReportesContactoScreenState extends State<_ReportesContactoScreen> {
   Future<void> _desestimar(String id) async {
     final nota = await _pedirNota('✅ Desestimar');
     if (nota == null) return;
-    await _supabase.desestimarReporte(id, notaAdmin: nota);
+    await _repo.desestimar(id, notaAdmin: nota);
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Desestimado')));
     _cargar();
   }
 
   Future<void> _eliminar(String id) async {
     if (!await _confirmar('🗑️ ¿Eliminar?', 'Se borra permanentemente.', destructiva: true)) return;
-    await _supabase.eliminarReporte(id);
+    // TODO: mover a repositorio — eliminarReporte no existe en ReportesRepository
+    await _repo.eliminar(id);
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🗑️ Eliminado')));
     _cargar();
   }
 
   Future<void> _reactivar(String id) async {
     if (!await _confirmar('♻️ ¿Reactivar?', 'Vuelve a pendiente.')) return;
-    await _supabase.reactivarReporte(id);
+    // TODO: mover a repositorio — reactivarReporte no existe en ReportesRepository
+    await _repo.reactivar(id);
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('♻️ Reactivado')));
     _cargar();
   }
@@ -286,7 +286,7 @@ class _ReportesContactoScreenState extends State<_ReportesContactoScreen> {
   Future<void> _aprobarBulk() async {
     if (_seleccionados.isEmpty) return;
     if (!await _confirmar('✅ Aprobar ${_seleccionados.length} reportes', '¿Aprobar todos los seleccionados?')) return;
-    await _supabase.aprobarReportesBulk(_seleccionados.toList());
+    await _repo.aprobarBulk(_seleccionados.toList());
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ ${_seleccionados.length} aprobados')));
     setState(() => _modoSeleccion = false);
     _cargar();
@@ -295,7 +295,7 @@ class _ReportesContactoScreenState extends State<_ReportesContactoScreen> {
   Future<void> _desestimarBulk() async {
     if (_seleccionados.isEmpty) return;
     if (!await _confirmar('✅ Desestimar ${_seleccionados.length} reportes', '¿Desestimar todos los seleccionados?', destructiva: true)) return;
-    await _supabase.desestimarReportesBulk(_seleccionados.toList());
+    await _repo.desestimarBulk(_seleccionados.toList());
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ ${_seleccionados.length} desestimados')));
     setState(() => _modoSeleccion = false);
     _cargar();
@@ -439,7 +439,8 @@ class _ReportesContactoScreenState extends State<_ReportesContactoScreen> {
   }
 
   Future<void> _mostrarStatsReportador(String identificador) async {
-    final stats = await _supabase.getStatsReportador(identificador);
+    // TODO: mover a repositorio — getStatsReportador no existe en ReportesRepository
+    final stats = await _repo.getStatsReportador(identificador);
     if (!mounted) return;
     showDialog(
       context: context,
@@ -629,13 +630,13 @@ class _ReportesContactoScreenState extends State<_ReportesContactoScreen> {
                           if (dir == DismissDirection.startToEnd) {
                             final nota = await _pedirNota('⚠️ Aprobar');
                             if (nota == null) return false;
-                            await _supabase.aprobarReporte(r['id'], notaAdmin: nota);
+                            await _repo.aprobar(r['id'], notaAdmin: nota);
                             if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('⚠️ Aprobado')));
                             return true;
                           } else {
                             final nota = await _pedirNota('✅ Desestimar');
                             if (nota == null) return false;
-                            await _supabase.desestimarReporte(r['id'], notaAdmin: nota);
+                            await _repo.desestimar(r['id'], notaAdmin: nota);
                             if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Desestimado')));
                             return true;
                           }

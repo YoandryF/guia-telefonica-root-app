@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/contacto.dart';
+import '../repositories/reportes_repository.dart';
 import '../services/local_database_service.dart';
 import '../services/supabase_service.dart';
 import '../services/telegram_evidence_service.dart';
@@ -43,7 +44,7 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
 
   Future<void> _cargarReportes() async {
     try {
-      final info = await SupabaseService().getInfoReportes(widget.contacto.id);
+      final info = await ReportesRepository().getInfoReportes(widget.contacto.id);
       setState(() {
         _reportes = (info['pendientes'] as int) + (info['aprobados'] as int);
         _esVerificado = info['esVerificado'] as bool;
@@ -418,6 +419,7 @@ class _ContactoDetalleScreenState extends State<ContactoDetalleScreen> {
       }
     }
 
+    // TODO: mover a repositorio — ReportesRepository.insertar no soporta evidenciaMsgId/evidenciaFileId aún
     final resp = await SupabaseService().reportarContacto(
       contactoId: widget.contacto.id,
       motivo: motivoSeleccionado!,

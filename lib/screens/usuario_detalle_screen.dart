@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../models/contacto.dart';
+import '../repositories/contactos_repository.dart';
+import '../repositories/usuarios_repository.dart';
 import '../screens/contacto_detalle_screen.dart';
-import '../services/supabase_service.dart';
 
 class UsuarioDetalleScreen extends StatefulWidget {
   final String telegramUserId;
@@ -14,7 +14,7 @@ class UsuarioDetalleScreen extends StatefulWidget {
 
 class _UsuarioDetalleScreenState extends State<UsuarioDetalleScreen>
     with SingleTickerProviderStateMixin {
-  final _supabase = SupabaseService();
+  final _usuariosRepo = UsuariosRepository();
   Map<String, dynamic> _data = {};
   bool _cargando = true;
   late TabController _tabs;
@@ -34,7 +34,7 @@ class _UsuarioDetalleScreenState extends State<UsuarioDetalleScreen>
 
   Future<void> _cargar() async {
     setState(() => _cargando = true);
-    final data = await _supabase.getUsuario360(widget.telegramUserId);
+    final data = await _usuariosRepo.getUsuario360(widget.telegramUserId);
     setState(() {
       _data = data;
       _cargando = false;
@@ -333,7 +333,7 @@ class _UsuarioDetalleScreenState extends State<UsuarioDetalleScreen>
       ),
     );
     if (confirm != true || !mounted) return;
-    final result = await _supabase.quitarRestriccion(id);
+    final result = await _usuariosRepo.quitarRestriccion(id);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(result['error'] == null ? '✅ Restricción eliminada' : 'Error: ${result['error']}'),
@@ -415,7 +415,7 @@ class _UsuarioDetalleScreenState extends State<UsuarioDetalleScreen>
                   }
                   final adminEmail =
                       Supabase.instance.client.auth.currentUser?.email ?? 'admin';
-                  final result = await _supabase.agregarRestriccion(
+                  final result = await _usuariosRepo.agregarRestriccion(
                     telegramUserId: widget.telegramUserId,
                     funcionalidad: funcionalidad,
                     motivo: motivoCtrl.text.trim(),
@@ -575,14 +575,10 @@ class _ListaReportes extends StatelessWidget {
                   label: Text('Ver contacto: $contacto'),
                   onPressed: () async {
                     Navigator.pop(ctx); // cerrar sheet
-                    final data = await Supabase.instance.client
-                        .from('contactos')
-                        .select('*, categorias(nombre, icono)')
-                        .eq('telefono', telefono)
-                        .maybeSingle();
-                    if (data == null || !ctx.mounted) return;
+                    final c = await ContactosRepository().buscarPorTelefono(telefono);
+                    if (c == null || !ctx.mounted) return;
                     Navigator.push(ctx, MaterialPageRoute(
-                      builder: (_) => ContactoDetalleScreen(contacto: Contacto.fromJson(data)),
+                      builder: (_) => ContactoDetalleScreen(contacto: c),
                     ));
                   },
                 ),
@@ -678,6 +674,7 @@ class _ListaAvales extends StatelessWidget {
 
   Future<void> _resolverAval(BuildContext ctx, String avalId, String nuevoEstado) async {
     try {
+      // TODO: mover a repositorio — resolver_aval RPC no tiene método en UsuariosRepository
       final r = await Supabase.instance.client.rpc('resolver_aval', params: {
         'p_aval_id':      avalId,
         'p_estado':       nuevoEstado,
@@ -700,14 +697,10 @@ class _ListaAvales extends StatelessWidget {
   }
 
   Future<void> _abrirContacto(BuildContext ctx, String telefono) async {
-    final data = await Supabase.instance.client
-        .from('contactos')
-        .select('*, categorias(nombre, icono)')
-        .eq('telefono', telefono)
-        .maybeSingle();
-    if (data == null || !ctx.mounted) return;
+    final c = await ContactosRepository().buscarPorTelefono(telefono);
+    if (c == null || !ctx.mounted) return;
     Navigator.push(ctx, MaterialPageRoute(
-      builder: (_) => ContactoDetalleScreen(contacto: Contacto.fromJson(data)),
+      builder: (_) => ContactoDetalleScreen(contacto: c),
     ));
   }
 }
@@ -757,14 +750,10 @@ class _ListaContactos extends StatelessWidget {
   }
 
   Future<void> _abrirContacto(BuildContext ctx, String telefono) async {
-    final data = await Supabase.instance.client
-        .from('contactos')
-        .select('*, categorias(nombre, icono)')
-        .eq('telefono', telefono)
-        .maybeSingle();
-    if (data == null || !ctx.mounted) return;
+    final c = await ContactosRepository().buscarPorTelefono(telefono);
+    if (c == null || !ctx.mounted) return;
     Navigator.push(ctx, MaterialPageRoute(
-      builder: (_) => ContactoDetalleScreen(contacto: Contacto.fromJson(data)),
+      builder: (_) => ContactoDetalleScreen(contacto: c),
     ));
   }
 }
@@ -810,12 +799,10 @@ class _ListaReportesSheet extends StatelessWidget {
                         subtitle: Text('📱 $telefono  •  $motivo', style: const TextStyle(fontSize: 11)),
                         trailing: Text(fecha, style: const TextStyle(fontSize: 10, color: Colors.grey)),
                         onTap: telefono.isNotEmpty ? () async {
-                          final data = await Supabase.instance.client
-                              .from('contactos').select('*, categorias(nombre, icono)')
-                              .eq('telefono', telefono).maybeSingle();
-                          if (data == null || !ctx.mounted) return;
+                          final c = await ContactosRepository().buscarPorTelefono(telefono);
+                          if (c == null || !ctx.mounted) return;
                           Navigator.push(ctx, MaterialPageRoute(
-                            builder: (_) => ContactoDetalleScreen(contacto: Contacto.fromJson(data)),
+                            builder: (_) => ContactoDetalleScreen(contacto: c),
                           ));
                         } : null,
                       );
@@ -865,12 +852,10 @@ class _ListaAvalesSheet extends StatelessWidget {
                         subtitle: Text('📱 $telefono', style: const TextStyle(fontSize: 11)),
                         trailing: Text(fecha, style: const TextStyle(fontSize: 10, color: Colors.grey)),
                         onTap: telefono.isNotEmpty ? () async {
-                          final data = await Supabase.instance.client
-                              .from('contactos').select('*, categorias(nombre, icono)')
-                              .eq('telefono', telefono).maybeSingle();
-                          if (data == null || !ctx.mounted) return;
+                          final c = await ContactosRepository().buscarPorTelefono(telefono);
+                          if (c == null || !ctx.mounted) return;
                           Navigator.push(ctx, MaterialPageRoute(
-                            builder: (_) => ContactoDetalleScreen(contacto: Contacto.fromJson(data)),
+                            builder: (_) => ContactoDetalleScreen(contacto: c),
                           ));
                         } : null,
                       );
