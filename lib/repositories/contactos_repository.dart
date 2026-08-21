@@ -42,7 +42,8 @@ class ContactosRepository {
   }
 
   Future<List<Contacto>> buscar(String query, {int offset = 0, int limit = 50}) {
-    return _local.buscarContactosPaginados(query, offset: offset, limit: limit);
+    if (query.trim().isEmpty) return Future.value([]);
+    return _local.buscarContactosPaginados(query.trim(), offset: offset, limit: limit);
   }
 
   Future<int> count({
