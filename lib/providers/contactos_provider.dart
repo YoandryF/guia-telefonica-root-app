@@ -48,15 +48,19 @@ class ContactosNotifier extends AsyncNotifier<ContactosState> {
     final filtros = ref.read(filtrosProvider);
 
     final total = await _repo.count(
-      categoriaId: filtros.categoriaId,
+      categoriaId:    filtros.categoriaId,
       soloReportados: filtros.soloReportados,
+      provincia:      filtros.provincia,
+      municipio:      filtros.municipio,
     );
 
     final contactos = await _repo.getPaginado(
-      offset: pagina * _pageSize,
-      limit: _pageSize,
-      categoriaId: filtros.categoriaId,
+      offset:         pagina * _pageSize,
+      limit:          _pageSize,
+      categoriaId:    filtros.categoriaId,
       soloReportados: filtros.soloReportados,
+      provincia:      filtros.provincia,
+      municipio:      filtros.municipio,
     );
 
     return ContactosState(

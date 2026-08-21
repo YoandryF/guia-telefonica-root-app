@@ -38,8 +38,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   // Estado local que se mantiene (no está en providers)
   List<Contacto> _favoritos = [];
   List<Map<String, dynamic>> _categorias = [];
-  String? _provinciaFiltro;
-  String? _municipioFiltro;
+  // _provinciaFiltro y _municipioFiltro migrados a filtrosProvider
   bool _online = true;
   DateTime? _ultimaSync;
   final _scrollController = ScrollController();
@@ -256,18 +255,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   int get _filtrosActivos {
     final filtros = ref.read(filtrosProvider);
-    int count = 0;
-    if (filtros.categoriaId != null || filtros.soloReportados) count++;
-    if (_provinciaFiltro != null) count++;
-    if (_municipioFiltro != null) count++;
-    return count;
+    return filtros.contadorFiltrosActivos;
   }
 
   void _mostrarFiltros() {
     final provincias = UbicacionService.getProvincias();
     final filtrosState = ref.read(filtrosProvider);
-    String? tempProvincia = _provinciaFiltro;
-    String? tempMunicipio = _municipioFiltro;
+    String? tempProvincia = filtrosState.provincia;  // ← desde provider
+    String? tempMunicipio = filtrosState.municipio;  // ← desde provider
     String? tempCategoria = filtrosState.categoriaId;
     bool tempSoloReportados = filtrosState.soloReportados;
     List<String> municipiosDisponibles = tempProvincia != null
@@ -399,12 +394,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       }
                       ref.read(filtrosProvider.notifier).setCategoria(tempCategoria);
                     }
-                    // Estado local para provincia/municipio
-                    setState(() {
-                      _provinciaFiltro = tempProvincia;
-                      _municipioFiltro = tempMunicipio;
-                    });
-                    _aplicarFiltrosLocales();
+                    // Provincia y municipio ahora en el provider — activan filtro real en SQLite
+                    ref.read(filtrosProvider.notifier).setProvincia(tempProvincia);
+                    ref.read(filtrosProvider.notifier).setMunicipio(tempMunicipio);
+                    _resetAcumulador();
+                    ref.read(contactosProvider.notifier).recargar();
                     Navigator.pop(ctx);
                   },
                   icon: const Icon(Icons.check),
@@ -663,18 +657,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       },
                       visualDensity: VisualDensity.compact,
                     ),
-                  if (_provinciaFiltro != null)
+                  if (ref.watch(filtrosProvider).provincia != null)
                     Chip(
-                      label: Text('🗺 $_provinciaFiltro', style: const TextStyle(fontSize: 11)),
+                      label: Text('🗺 ${ref.watch(filtrosProvider).provincia}', style: const TextStyle(fontSize: 11)),
                       deleteIcon: const Icon(Icons.close, size: 14),
-                      onDeleted: () { setState(() { _provinciaFiltro = null; _municipioFiltro = null; }); _aplicarFiltrosLocales(); },
+                      onDeleted: () {
+                        ref.read(filtrosProvider.notifier).setProvincia(null);
+                        _resetAcumulador();
+                        ref.read(contactosProvider.notifier).recargar();
+                      },
                       visualDensity: VisualDensity.compact,
                     ),
-                  if (_municipioFiltro != null)
+                  if (ref.watch(filtrosProvider).municipio != null)
                     Chip(
-                      label: Text('🏘 $_municipioFiltro', style: const TextStyle(fontSize: 11)),
+                      label: Text('🏘 ${ref.watch(filtrosProvider).municipio}', style: const TextStyle(fontSize: 11)),
                       deleteIcon: const Icon(Icons.close, size: 14),
-                      onDeleted: () { setState(() => _municipioFiltro = null); _aplicarFiltrosLocales(); },
+                      onDeleted: () {
+                        ref.read(filtrosProvider.notifier).setMunicipio(null);
+                        _resetAcumulador();
+                        ref.read(contactosProvider.notifier).recargar();
+                      },
                       visualDensity: VisualDensity.compact,
                     ),
                 ],
