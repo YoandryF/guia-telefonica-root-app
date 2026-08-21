@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../providers/admin_session_provider.dart';
 import '../services/supabase_service.dart';
 import 'admin_panel_screen.dart';
 
-class LoginAdminScreen extends StatefulWidget {
+class LoginAdminScreen extends ConsumerStatefulWidget {
   const LoginAdminScreen({super.key});
   @override
-  State<LoginAdminScreen> createState() => _LoginAdminScreenState();
+  ConsumerState<LoginAdminScreen> createState() => _LoginAdminScreenState();
 }
 
-class _LoginAdminScreenState extends State<LoginAdminScreen> {
+class _LoginAdminScreenState extends ConsumerState<LoginAdminScreen> {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _supabase = SupabaseService();
@@ -63,6 +65,9 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
 
     if (ok) {
       await _guardarCredenciales();
+      // Notificar al provider global — otras pantallas sabrán que hay sesión admin
+      await ref.read(adminSessionProvider.notifier).verificarSesion();
+      if (!mounted) return;
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AdminPanelScreen()));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(

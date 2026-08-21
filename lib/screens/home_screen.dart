@@ -5,6 +5,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../models/contacto.dart';
+import '../providers/filtros_provider.dart';
+import '../providers/contactos_provider.dart';
 import '../providers/sync_provider.dart';
 import '../services/background_sync_service.dart';
 import '../services/local_database_service.dart';
@@ -33,24 +35,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _localDb = LocalDatabaseService();
   final _supabaseService = SupabaseService();
 
-  List<Contacto> _visibles = [];
+  // Estado local que se mantiene (no está en providers)
   List<Contacto> _favoritos = [];
   List<Map<String, dynamic>> _categorias = [];
-  String? _categoriaFiltro;
   String? _provinciaFiltro;
   String? _municipioFiltro;
-  bool _cargando = true;
   bool _online = true;
   DateTime? _ultimaSync;
-  int _filtrosActivos = 0;
-  static const _pageSize = 50;
-  int _paginaActual = 1;
-  int _totalContactos = 0;
-  bool _cargandoMas = false;
   final _scrollController = ScrollController();
   StreamSubscription? _connectivitySub;
 
-  // Estado de sincronización
+  // Acumulador local para scroll infinito (el provider reemplaza páginas, no acumula)
+  List<Contacto> _contactosAcumulados = [];
+  int _ultimaPaginaCargada = -1;
+
+  // Estado de sincronización (legacy — se mantiene para la sync incremental manual)
   bool _sincronizando = false;
   int _syncDescargados = 0;
   int _syncTotal = 0;
@@ -58,19 +57,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _cargarContactos();
     _cargarCategorias();
-    // _sincronizar() removido del arranque — manual via botón sync
-    // Con 900k registros las queries de verificación ralentizan la apertura
+    _cargarFavoritos();
+    _cargarUltimaSync();
     _verificarActualizacion();
     _scrollController.addListener(_onScroll);
     _connectivitySub = Connectivity().onConnectivityChanged.listen((result) {
-      setState(() => _online = result != ConnectivityResult.none);
-      // No auto-sync al recuperar conexión — manual
+      final connectivityList = result;
+      setState(() => _online = !connectivityList.contains(ConnectivityResult.none));
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _pedirPermisoNotificaciones();
-      // Escuchar sync completada O con error parcial para recargar contactos locales
+      // Escuchar sync completada para recargar contactos
       ref.listenManual(syncProvider, (prev, next) {
         final termino = next.estado == SyncEstado.completado ||
             next.estado == SyncEstado.error ||
@@ -79,10 +77,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             prev?.estado == SyncEstado.error ||
             prev?.estado == SyncEstado.cancelado;
         if (termino && !prevTermino && next.descargados > 0) {
-          _recargarPagina();
+          _resetAcumulador();
+          ref.read(contactosProvider.notifier).recargar();
+          _cargarFavoritos();
+        }
+      });
+      // Escuchar cambios en filtros para resetear el acumulador
+      ref.listenManual(filtrosProvider, (prev, next) {
+        if (prev != next) {
+          _resetAcumulador();
+          ref.read(contactosProvider.notifier).recargar();
         }
       });
     });
+  }
+
+  void _resetAcumulador() {
+    setState(() {
+      _contactosAcumulados = [];
+      _ultimaPaginaCargada = -1;
+    });
+  }
+
+  Future<void> _cargarFavoritos() async {
+    final favIds = await _localDb.getFavoritosIds();
+    final favoritos = favIds.isNotEmpty
+        ? await _localDb.getContactosPorIds(favIds)
+        : <Contacto>[];
+    if (mounted) setState(() => _favoritos = favoritos);
+  }
+
+  Future<void> _cargarUltimaSync() async {
+    _ultimaSync = await _localDb.getUltimaSincronizacion();
+    if (mounted) setState(() {});
   }
 
   Future<void> _pedirPermisoNotificaciones() async {
@@ -91,21 +118,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (status.isDenied) {
         await Permission.notification.request();
       }
-    } catch (_) {
-      // permission_handler puede no tener notification en versiones viejas — ignorar
-    }
+    } catch (_) {}
   }
 
-  /// Actualiza tiene_reportes en SQLite consultando Supabase al arrancar.
-  /// Garantiza que la lista negra funcione aunque la sync esté incompleta.
   Future<void> _actualizarFlagsReportes() async {
     try {
       if (!_online) return;
       final ids = await _supabaseService.getContactosConReportes();
       await _localDb.actualizarReportesEficiente(ids);
-    } catch (_) {
-      // Silencioso — no crítico para el arranque
-    }
+    } catch (_) {}
   }
 
   @override
@@ -131,44 +152,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('✅ Ya tienes la última versión')),
       );
-    }
-  }
-
-  Future<void> _cargarContactos() async {
-    setState(() => _cargando = true);
-    try {
-      _ultimaSync = await _localDb.getUltimaSincronizacion();
-      final favIds = await _localDb.getFavoritosIds();
-      final favoritos = favIds.isNotEmpty
-          ? await _localDb.getContactosPorIds(favIds)
-          : <Contacto>[];
-      // Respetar filtros activos al recargar
-      final totalContactos = await _localDb.countContactos(
-        categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
-        provincia: _provinciaFiltro,
-        municipio: _municipioFiltro,
-        soloReportados: _categoriaFiltro == '_reportados',
-      );
-      final primeraPagena = await _localDb.getContactosPaginados(
-        offset: 0,
-        limit: _pageSize,
-        categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
-        provincia: _provinciaFiltro,
-        municipio: _municipioFiltro,
-        soloReportados: _categoriaFiltro == '_reportados',
-      );
-      if (mounted) {
-        setState(() {
-          _totalContactos = totalContactos;
-          _visibles = primeraPagena;
-          _favoritos = favoritos;
-          _paginaActual = 1;
-        });
-      }
-    } catch (e) {
-      debugPrint('_cargarContactos error: $e');
-    } finally {
-      if (mounted) setState(() => _cargando = false);
     }
   }
 
@@ -206,15 +189,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
 
       debugPrint('SYNC: sync incremental (desfase=$desfase)');
-      // Sync incremental rápida
       final nuevos = await _supabaseService.getContactosAprobadosDesde(ultimaSync);
       if (nuevos.isNotEmpty) await _localDb.sincronizarBatch(nuevos);
       final eliminados = await _supabaseService.getContactosEliminadosDesde(ultimaSync);
-      for (final id in eliminados) await _localDb.eliminarContacto(id);
+      for (final id in eliminados) {
+        await _localDb.eliminarContacto(id);
+      }
       final ids = await _supabaseService.getContactosConReportes();
       await _localDb.actualizarReportesEficiente(ids);
       await _localDb.guardarUltimaSincronizacion(DateTime.now());
-      await _recargarPagina();
+      _cargarUltimaSync();
+      // Recargar contactos via provider
+      _resetAcumulador();
+      ref.read(contactosProvider.notifier).recargar();
     } catch (e) {
       debugPrint('Sync error: $e');
     }
@@ -233,104 +220,56 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
-  void _aplicarFiltros() {
-    _paginaActual = 1;
-    _filtrosActivos = (_categoriaFiltro != null ? 1 : 0) +
-        (_provinciaFiltro != null ? 1 : 0) +
-        (_municipioFiltro != null ? 1 : 0);
-    _recargarPagina();
-  }
-
-  Future<void> _recargarPagina() async {
-    final query = _searchController.text;
-    setState(() => _cargando = true);
-
-    try {
-      List<Contacto> resultado;
-      int total;
-
-      if (query.isNotEmpty) {
-        resultado = await _localDb.buscarContactosPaginados(query, offset: 0, limit: _pageSize);
-        final todos = await _localDb.buscarContactos(query);
-        total = todos.length;
-      } else {
-        total = await _localDb.countContactos(
-          categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
-          provincia: _provinciaFiltro,
-          municipio: _municipioFiltro,
-          soloReportados: _categoriaFiltro == '_reportados',
-        );
-        resultado = await _localDb.getContactosPaginados(
-          offset: 0,
-          limit: _pageSize,
-          categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
-          provincia: _provinciaFiltro,
-          municipio: _municipioFiltro,
-          soloReportados: _categoriaFiltro == '_reportados',
-        );
-      }
-
-      if (mounted) {
-        setState(() {
-          _visibles = resultado;
-          _totalContactos = total;
-          _paginaActual = 1;
-        });
-      }
-    } catch (e) {
-      debugPrint('_recargarPagina error: $e');
-    } finally {
-      if (mounted) setState(() => _cargando = false);
-    }
-  }
-
-  Future<void> _cargarMas() async {
-    if (_cargandoMas || _visibles.length >= _totalContactos) return;
-    setState(() => _cargandoMas = true);
-
-    final query = _searchController.text;
-    final offset = _paginaActual * _pageSize;
-    List<Contacto> mas;
-
-    if (query.isNotEmpty) {
-      mas = await _localDb.buscarContactosPaginados(query, offset: offset, limit: _pageSize);
-    } else {
-      mas = await _localDb.getContactosPaginados(
-        offset: offset,
-        limit: _pageSize,
-        categoriaId: _categoriaFiltro == '_reportados' ? null : _categoriaFiltro,
-        provincia: _provinciaFiltro,
-        municipio: _municipioFiltro,
-        soloReportados: _categoriaFiltro == '_reportados',
-      );
-    }
-
-    if (mounted) {
-      setState(() {
-        _visibles = [..._visibles, ...mas];
-        _paginaActual++;
-        _cargandoMas = false;
-      });
-    }
-  }
-
-  bool get _hayMas => _visibles.length < _totalContactos;
-
   void _onScroll() {
     if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 300) {
-      _cargarMas();
+      _cargarMasPaginas();
     }
   }
 
-  void _filtrar(String query) {
-    _recargarPagina();
+  Future<void> _cargarMasPaginas() async {
+    final contactosAsync = ref.read(contactosProvider);
+    final contactosState = contactosAsync.valueOrNull;
+    if (contactosState == null) return;
+    if (_contactosAcumulados.length >= contactosState.total) return;
+    // Evitar llamadas duplicadas mientras carga
+    if (contactosAsync.isLoading) return;
+
+    await ref.read(contactosProvider.notifier).siguientePagina();
+  }
+
+  void _onSearchChanged(String query) {
+    ref.read(filtrosProvider.notifier).setQuery(query);
+  }
+
+  void _limpiarBusqueda() {
+    _searchController.clear();
+    ref.read(filtrosProvider.notifier).setQuery('');
+  }
+
+  void _aplicarFiltrosLocales() {
+    // Resetear acumulador ya que los filtros cambiaron
+    _resetAcumulador();
+    // Los filtros de provincia/municipio aún no están en el provider,
+    // así que forzamos una recarga del provider (que usa categoría y soloReportados)
+    ref.read(contactosProvider.notifier).recargar();
+  }
+
+  int get _filtrosActivos {
+    final filtros = ref.read(filtrosProvider);
+    int count = 0;
+    if (filtros.categoriaId != null || filtros.soloReportados) count++;
+    if (_provinciaFiltro != null) count++;
+    if (_municipioFiltro != null) count++;
+    return count;
   }
 
   void _mostrarFiltros() {
     final provincias = UbicacionService.getProvincias();
+    final filtrosState = ref.read(filtrosProvider);
     String? tempProvincia = _provinciaFiltro;
     String? tempMunicipio = _municipioFiltro;
-    String? tempCategoria = _categoriaFiltro;
+    String? tempCategoria = filtrosState.categoriaId;
+    bool tempSoloReportados = filtrosState.soloReportados;
     List<String> municipiosDisponibles = tempProvincia != null
         ? UbicacionService.getMunicipios(tempProvincia)
         : [];
@@ -358,6 +297,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       onPressed: () {
                         setSheetState(() {
                           tempCategoria = null;
+                          tempSoloReportados = false;
                           tempProvincia = null;
                           tempMunicipio = null;
                           municipiosDisponibles = [];
@@ -374,7 +314,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 Text('Categoría', style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: tempCategoria,
+                  value: tempSoloReportados ? '_reportados' : tempCategoria,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
                     contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -389,7 +329,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       child: Text('${cat['icono'] ?? "📋"} ${cat['nombre']}'),
                     )),
                   ],
-                  onChanged: (v) => setSheetState(() => tempCategoria = v),
+                  onChanged: (v) => setSheetState(() {
+                    if (v == '_reportados') {
+                      tempCategoria = null;
+                      tempSoloReportados = true;
+                    } else {
+                      tempCategoria = v;
+                      tempSoloReportados = false;
+                    }
+                  }),
                 ),
 
                 // Provincia
@@ -439,12 +387,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 const SizedBox(height: 24),
                 FilledButton.icon(
                   onPressed: () {
+                    // Aplicar filtros al provider
+                    if (tempSoloReportados) {
+                      ref.read(filtrosProvider.notifier).setCategoria(null);
+                      if (!ref.read(filtrosProvider).soloReportados) {
+                        ref.read(filtrosProvider.notifier).toggleSoloReportados();
+                      }
+                    } else {
+                      if (ref.read(filtrosProvider).soloReportados) {
+                        ref.read(filtrosProvider.notifier).toggleSoloReportados();
+                      }
+                      ref.read(filtrosProvider.notifier).setCategoria(tempCategoria);
+                    }
+                    // Estado local para provincia/municipio
                     setState(() {
-                      _categoriaFiltro = tempCategoria;
                       _provinciaFiltro = tempProvincia;
                       _municipioFiltro = tempMunicipio;
                     });
-                    _aplicarFiltros();
+                    _aplicarFiltrosLocales();
                     Navigator.pop(ctx);
                   },
                   icon: const Icon(Icons.check),
@@ -467,14 +427,54 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Observar providers
+    final filtrosState = ref.watch(filtrosProvider);
+    final contactosAsync = ref.watch(contactosProvider);
+    final contactosFiltrados = ref.watch(contactosFiltradosProvider);
+
+    // Derivar estado del provider
+    final bool cargando = contactosAsync.isLoading && _contactosAcumulados.isEmpty;
+    final int totalContactos = contactosAsync.valueOrNull?.total ?? 0;
+    final int filtrosActivosCount = _filtrosActivos;
+
+    // Acumular contactos para scroll infinito
+    contactosAsync.whenData((state) {
+      if (state.paginaActual > _ultimaPaginaCargada) {
+        // Nueva página disponible — acumular
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            setState(() {
+              if (state.paginaActual == 0) {
+                _contactosAcumulados = List.from(state.contactos);
+              } else {
+                _contactosAcumulados = [..._contactosAcumulados, ...state.contactos];
+              }
+              _ultimaPaginaCargada = state.paginaActual;
+            });
+          }
+        });
+      }
+    });
+
+    // Determinar qué contactos mostrar
+    final List<Contacto> visibles;
+    if (filtrosState.query.isNotEmpty) {
+      // Cuando hay búsqueda activa, usar el filtrado en memoria
+      visibles = contactosFiltrados;
+    } else {
+      visibles = _contactosAcumulados;
+    }
+
+    final bool hayMas = visibles.length < totalContactos && filtrosState.query.isEmpty;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('📋 Guía Telefónica'),
         actions: [
           IconButton(
             icon: Badge(
-              isLabelVisible: _filtrosActivos > 0,
-              label: Text('$_filtrosActivos'),
+              isLabelVisible: filtrosActivosCount > 0,
+              label: Text('$filtrosActivosCount'),
               child: const Icon(Icons.filter_list),
             ),
             tooltip: 'Filtros',
@@ -490,7 +490,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           PopupMenuButton<String>(
             onSelected: (value) {
               final syncEnProgreso = ref.read(syncProvider).enProgreso;
-              // Bloquear importar/exportar/resync durante sync en background
               if (syncEnProgreso && (value == 'resync')) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('⏳ Espera a que termine la sincronización')),
@@ -627,52 +626,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 suffixIcon: _searchController.text.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                          _aplicarFiltros();
-                        },
+                        onPressed: _limpiarBusqueda,
                       )
                     : null,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 filled: true,
               ),
-              onChanged: _filtrar,
+              onChanged: _onSearchChanged,
             ),
           ),
 
           // Chips de filtros activos
-          if (_filtrosActivos > 0)
+          if (filtrosActivosCount > 0)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Wrap(
                 spacing: 6,
                 children: [
-                  if (_categoriaFiltro == '_reportados')
+                  if (filtrosState.soloReportados)
                     Chip(
                       label: const Text('⚠️ Reportados', style: TextStyle(fontSize: 11)),
                       deleteIcon: const Icon(Icons.close, size: 14),
-                      onDeleted: () { setState(() => _categoriaFiltro = null); _aplicarFiltros(); },
+                      onDeleted: () {
+                        ref.read(filtrosProvider.notifier).toggleSoloReportados();
+                        _aplicarFiltrosLocales();
+                      },
                       visualDensity: VisualDensity.compact,
                     )
-                  else if (_categoriaFiltro != null)
+                  else if (filtrosState.categoriaId != null)
                     Chip(
-                      label: Text(_categorias.firstWhere((c) => c['id'] == _categoriaFiltro, orElse: () => {'nombre': '?'})['nombre'] ?? '?', style: const TextStyle(fontSize: 11)),
+                      label: Text(_categorias.firstWhere((c) => c['id'] == filtrosState.categoriaId, orElse: () => {'nombre': '?'})['nombre'] ?? '?', style: const TextStyle(fontSize: 11)),
                       deleteIcon: const Icon(Icons.close, size: 14),
-                      onDeleted: () { setState(() => _categoriaFiltro = null); _aplicarFiltros(); },
+                      onDeleted: () {
+                        ref.read(filtrosProvider.notifier).setCategoria(null);
+                        _aplicarFiltrosLocales();
+                      },
                       visualDensity: VisualDensity.compact,
                     ),
                   if (_provinciaFiltro != null)
                     Chip(
                       label: Text('🗺 $_provinciaFiltro', style: const TextStyle(fontSize: 11)),
                       deleteIcon: const Icon(Icons.close, size: 14),
-                      onDeleted: () { setState(() { _provinciaFiltro = null; _municipioFiltro = null; }); _aplicarFiltros(); },
+                      onDeleted: () { setState(() { _provinciaFiltro = null; _municipioFiltro = null; }); _aplicarFiltrosLocales(); },
                       visualDensity: VisualDensity.compact,
                     ),
                   if (_municipioFiltro != null)
                     Chip(
                       label: Text('🏘 $_municipioFiltro', style: const TextStyle(fontSize: 11)),
                       deleteIcon: const Icon(Icons.close, size: 14),
-                      onDeleted: () { setState(() => _municipioFiltro = null); _aplicarFiltros(); },
+                      onDeleted: () { setState(() => _municipioFiltro = null); _aplicarFiltrosLocales(); },
                       visualDensity: VisualDensity.compact,
                     ),
                 ],
@@ -684,7 +686,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
             child: Row(
               children: [
-                Text('$_totalContactos contactos', style: Theme.of(context).textTheme.bodySmall),
+                Text('$totalContactos contactos', style: Theme.of(context).textTheme.bodySmall),
                 const Spacer(),
                 if (_ultimaSync != null)
                   Text('Sync: ${_formatearFecha(_ultimaSync!)}', style: Theme.of(context).textTheme.bodySmall),
@@ -693,7 +695,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
 
           // Favoritos
-          if (_favoritos.isNotEmpty && _searchController.text.isEmpty && _filtrosActivos == 0)
+          if (_favoritos.isNotEmpty && filtrosState.query.isEmpty && filtrosActivosCount == 0)
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -710,7 +712,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     itemBuilder: (ctx, i) {
                       final c = _favoritos[i];
                       return GestureDetector(
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ContactoDetalleScreen(contacto: c))).then((_) => _cargarContactos()),
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ContactoDetalleScreen(contacto: c))).then((_) {
+                          _cargarFavoritos();
+                          _resetAcumulador();
+                          ref.read(contactosProvider.notifier).recargar();
+                        }),
                         child: Container(
                           width: 140,
                           margin: const EdgeInsets.only(right: 8),
@@ -738,24 +744,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
           // Lista de contactos
           Expanded(
-            child: _cargando
+            child: cargando
                 ? const Center(child: CircularProgressIndicator())
-                : _visibles.isEmpty
+                : visibles.isEmpty
                     ? const Center(child: Text('No se encontraron contactos'))
                     : RefreshIndicator(
                         onRefresh: _sincronizar,
                         child: ListView.builder(
                           controller: _scrollController,
-                          itemCount: _visibles.length + (_hayMas ? 1 : 0),
+                          itemCount: visibles.length + (hayMas ? 1 : 0),
                           itemBuilder: (context, index) {
-                            if (index == _visibles.length) {
+                            if (index == visibles.length) {
                               return const Padding(
                                 padding: EdgeInsets.symmetric(vertical: 16),
                                 child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
                               );
                             }
                             return _ContactoCard(
-                              contacto: _visibles[index],
+                              contacto: visibles[index],
                               onLlamar: _llamar,
                             );
                           },
@@ -770,7 +776,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             context,
             MaterialPageRoute(builder: (_) => const AgregarContactoScreen()),
           );
-          if (result == true) {
+          if (result == true && mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('✅ Contacto enviado para aprobación')),
             );
