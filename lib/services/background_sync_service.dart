@@ -83,9 +83,10 @@ class BackgroundSyncService {
       update('descargando', descargados, total);
 
       bool hayMas  = true;
-      // Con keyset pagination el tiempo por página es O(log N) — constante.
-      // Subimos a 2000 para reducir el número de requests de 1800 a 450.
-      const pageSize = 2000;
+      // Supabase limita respuestas REST a 1000 filas por defecto.
+      // pageSize debe ser <= 1000 para que hayMas funcione correctamente.
+      // Con 900: si retorna 900, hay más. Si retorna <900, es la última página.
+      const pageSize = 900;
 
       while (hayMas && !_cancelRequested) {
         List<dynamic>? lista;
