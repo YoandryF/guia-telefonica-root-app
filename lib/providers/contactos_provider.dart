@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/contacto.dart';
-import '../services/local_database_service.dart';
+import '../repositories/contactos_repository.dart';
 import 'filtros_provider.dart';
 
 // --- Estado ---
@@ -37,7 +37,7 @@ class ContactosState {
 
 class ContactosNotifier extends AsyncNotifier<ContactosState> {
   static const int _pageSize = 50;
-  final LocalDatabaseService _dbService = LocalDatabaseService();
+  final ContactosRepository _repo = ContactosRepository();
 
   @override
   Future<ContactosState> build() async {
@@ -47,12 +47,12 @@ class ContactosNotifier extends AsyncNotifier<ContactosState> {
   Future<ContactosState> _cargarPagina(int pagina) async {
     final filtros = ref.read(filtrosProvider);
 
-    final total = await _dbService.countContactos(
+    final total = await _repo.count(
       categoriaId: filtros.categoriaId,
       soloReportados: filtros.soloReportados,
     );
 
-    final contactos = await _dbService.getContactosPaginados(
+    final contactos = await _repo.getPaginado(
       offset: pagina * _pageSize,
       limit: _pageSize,
       categoriaId: filtros.categoriaId,
@@ -132,10 +132,8 @@ final contactosFiltradosProvider = Provider<List<Contacto>>((ref) {
   );
 });
 
-/// Búsqueda por query usando FTS5 / LIKE en SQLite (paginada)
 final busquedaContactosProvider =
     FutureProvider.family<List<Contacto>, String>((ref, query) async {
   if (query.trim().length < 2) return [];
-  final dbService = LocalDatabaseService();
-  return dbService.buscarContactosPaginados(query.trim());
+  return ContactosRepository().buscar(query.trim());
 });

@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../services/supabase_service.dart';
+import '../repositories/reportes_repository.dart';
 import 'admin_session_provider.dart';
 
 // --- Estado ---
@@ -32,7 +32,7 @@ class ReportesState {
 // --- Notifier ---
 
 class ReportesNotifier extends AsyncNotifier<ReportesState> {
-  final SupabaseService _supabaseService = SupabaseService();
+  final ReportesRepository _repo = ReportesRepository();
 
   @override
   Future<ReportesState> build() async {
@@ -41,30 +41,21 @@ class ReportesNotifier extends AsyncNotifier<ReportesState> {
 
   Future<ReportesState> _cargar() async {
     try {
-      final reportes = await _supabaseService.getReportesPendientes();
-      return ReportesState(
-        reportesPendientes: reportes,
-        loading: false,
-      );
+      final reportes = await _repo.getPendientes();
+      return ReportesState(reportesPendientes: reportes, loading: false);
     } catch (e) {
-      return ReportesState(
-        loading: false,
-        error: e.toString(),
-      );
+      return ReportesState(loading: false, error: e.toString());
     }
   }
 
-  /// Recargar reportes pendientes
   Future<void> cargar() async {
     state = const AsyncValue.loading();
     state = AsyncValue.data(await _cargar());
   }
 
-  /// Aprobar un reporte por su ID
   Future<void> aprobar(String id) async {
     try {
-      await _supabaseService.aprobarReporte(id);
-      // Recargar la lista
+      await _repo.aprobar(id);
       state = AsyncValue.data(await _cargar());
     } catch (e) {
       final current = state.valueOrNull ?? const ReportesState();
@@ -72,10 +63,9 @@ class ReportesNotifier extends AsyncNotifier<ReportesState> {
     }
   }
 
-  /// Rechazar/desestimar un reporte con motivo
   Future<void> rechazar(String id, String motivo) async {
     try {
-      await _supabaseService.desestimarReporte(id, notaAdmin: motivo);
+      await _repo.desestimar(id, notaAdmin: motivo);
       state = AsyncValue.data(await _cargar());
     } catch (e) {
       final current = state.valueOrNull ?? const ReportesState();
@@ -83,10 +73,9 @@ class ReportesNotifier extends AsyncNotifier<ReportesState> {
     }
   }
 
-  /// Desestimar un reporte (sin motivo obligatorio)
   Future<void> desestimar(String id) async {
     try {
-      await _supabaseService.desestimarReporte(id);
+      await _repo.desestimar(id);
       state = AsyncValue.data(await _cargar());
     } catch (e) {
       final current = state.valueOrNull ?? const ReportesState();
@@ -102,12 +91,9 @@ final reportesProvider =
   ReportesNotifier.new,
 );
 
-/// Reportes del usuario actual (usando su adminId como telegramUserId fallback)
 final misReportesProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final session = ref.watch(adminSessionProvider);
   if (session.adminId == null || session.adminId!.isEmpty) return [];
-
-  final supabaseService = SupabaseService();
-  return supabaseService.getMisReportes(session.adminId!);
+  return ReportesRepository().getMisReportes(session.adminId!);
 });
