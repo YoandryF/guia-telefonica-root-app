@@ -138,11 +138,11 @@ class _AgregarContactoScreenState extends State<AgregarContactoScreen> {
               ),
               const SizedBox(height: 12),
 
-              // === UBICACIÓN ===
+              // === UBICACIÓN (OBLIGATORIA) ===
               DropdownButtonFormField<String>(
                 value: _provinciaSeleccionada,
                 decoration: const InputDecoration(
-                  labelText: 'Provincia',
+                  labelText: 'Provincia *',
                   prefixIcon: Icon(Icons.map),
                   border: OutlineInputBorder(),
                 ),
@@ -150,6 +150,7 @@ class _AgregarContactoScreenState extends State<AgregarContactoScreen> {
                   return DropdownMenuItem(value: p, child: Text(p));
                 }).toList(),
                 onChanged: _onProvinciaChanged,
+                validator: (v) => v == null ? 'Selecciona una provincia' : null,
                 isExpanded: true,
               ),
               const SizedBox(height: 12),
@@ -157,15 +158,22 @@ class _AgregarContactoScreenState extends State<AgregarContactoScreen> {
               DropdownButtonFormField<String>(
                 value: _municipioSeleccionado,
                 decoration: const InputDecoration(
-                  labelText: 'Municipio',
+                  labelText: 'Municipio *',
                   prefixIcon: Icon(Icons.location_city),
                   border: OutlineInputBorder(),
                 ),
                 items: _municipiosDisponibles.map((m) {
                   return DropdownMenuItem(value: m, child: Text(m));
                 }).toList(),
-                onChanged: (v) => setState(() => _municipioSeleccionado = v),
+                onChanged: _provinciaSeleccionada == null
+                    ? null
+                    : (v) => setState(() => _municipioSeleccionado = v),
+                validator: (v) => v == null ? 'Selecciona un municipio' : null,
                 isExpanded: true,
+                hint: _provinciaSeleccionada == null
+                    ? const Text('Selecciona primero una provincia',
+                        style: TextStyle(fontSize: 13, color: Colors.grey))
+                    : null,
               ),
               const SizedBox(height: 12),
 

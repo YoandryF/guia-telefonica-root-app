@@ -129,6 +129,13 @@ class ImportService {
           registrosConError.add({...c, '_motivo': 'Encoding corrupto — revisar archivo CSV (usar UTF-8)'});
           return false;
         }
+        // Rechazar sin ubicación
+        final provincia = c['provincia'] ?? '';
+        final municipio = c['municipio'] ?? '';
+        if (provincia.trim().isEmpty || municipio.trim().isEmpty) {
+          registrosConError.add({...c, '_motivo': 'Falta provincia y/o municipio — campo obligatorio'});
+          return false;
+        }
         return true;
       }).map((c) {
         final estadoArchivo = c['estado']?.toLowerCase().trim();
