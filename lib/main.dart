@@ -1,12 +1,10 @@
-import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'config/router.dart';
 import 'config/supabase_config.dart';
-import 'screens/splash_screen.dart';
 import 'providers/theme_provider.dart';
 import 'services/background_sync_service.dart';
-import 'services/deep_link_router.dart';
 import 'services/ubicacion_service.dart';
 import 'widgets/sync_banner.dart';
 
@@ -31,9 +29,6 @@ class GuiaTelefonicaApp extends ConsumerStatefulWidget {
 }
 
 class _GuiaTelefonicaAppState extends ConsumerState<GuiaTelefonicaApp> {
-  final _navigatorKey = GlobalKey<NavigatorState>();
-  late final AppLinks _appLinks;
-
   @override
   void initState() {
     super.initState();
@@ -41,30 +36,19 @@ class _GuiaTelefonicaAppState extends ConsumerState<GuiaTelefonicaApp> {
   }
 
   Future<void> _initDeepLinks() async {
-    _appLinks = AppLinks();
-
-    final initialLink = await _appLinks.getInitialLink();
-    if (initialLink != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final ctx = _navigatorKey.currentContext;
-        if (ctx != null) DeepLinkRouter.handle(initialLink, ctx);
-      });
-    }
-
-    _appLinks.uriLinkStream.listen((uri) {
-      final ctx = _navigatorKey.currentContext;
-      if (ctx != null) DeepLinkRouter.handle(uri, ctx);
-    });
+    // Deep links manejados por DeepLinkRouter
+    // GoRouter maneja la navegación interna
+    // DeepLinkRouter.handle se integra via GoRouter redirects cuando sea necesario
   }
 
   @override
   Widget build(BuildContext context) {
     final themeMode = ref.watch(themeModeProvider);
+    final router    = ref.watch(routerProvider);
 
-    return MaterialApp(
+    return MaterialApp.router(
       title: 'Guía Telefónica',
       debugShowCheckedModeBanner: false,
-      navigatorKey: _navigatorKey,
       theme: ThemeData(
         useMaterial3: true,
         colorSchemeSeed: Colors.blue,
@@ -76,12 +60,11 @@ class _GuiaTelefonicaAppState extends ConsumerState<GuiaTelefonicaApp> {
         brightness: Brightness.dark,
       ),
       themeMode: themeMode,
-      home: const SplashScreen(),
-      // builder envuelve TODO el Navigator — el banner aparece en TODAS las pantallas
-      // sin importar la navegación
+      routerConfig: router,
+      // SyncServiceListener + SyncBanner via builder envuelven TODAS las rutas
       builder: (context, child) => SyncServiceListener(
         child: SyncBanner(
-          child: child ?? const SplashScreen(),
+          child: child ?? const SizedBox(),
         ),
       ),
     );

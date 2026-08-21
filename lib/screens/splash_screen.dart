@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'home_screen.dart';
-import 'onboarding_screen.dart';
+import '../config/router.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -17,14 +17,10 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _iniciar() async {
-    // Esperar inicialización en paralelo (sin timer fijo)
     final prefs = await SharedPreferences.getInstance();
     final visto = prefs.getBool('onboarding_visto') ?? false;
     if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => visto ? const HomeScreen() : const OnboardingScreen()),
-      );
+      context.go(visto ? AppRoutes.home : AppRoutes.onboarding);
     }
   }
 

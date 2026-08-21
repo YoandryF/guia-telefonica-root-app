@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../config/router.dart';
 import '../providers/admin_session_provider.dart';
 import '../services/supabase_service.dart';
-import 'admin_panel_screen.dart';
 
 class LoginAdminScreen extends ConsumerStatefulWidget {
   const LoginAdminScreen({super.key});
@@ -32,7 +33,7 @@ class _LoginAdminScreenState extends ConsumerState<LoginAdminScreen> {
     final user = Supabase.instance.client.auth.currentUser;
     if (user != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AdminPanelScreen()));
+        if (mounted) context.go(AppRoutes.adminPanel);
       });
     }
   }
@@ -68,7 +69,7 @@ class _LoginAdminScreenState extends ConsumerState<LoginAdminScreen> {
       // Notificar al provider global — otras pantallas sabrán que hay sesión admin
       await ref.read(adminSessionProvider.notifier).verificarSesion();
       if (!mounted) return;
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AdminPanelScreen()));
+      context.go(AppRoutes.adminPanel);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('❌ Credenciales incorrectas'), backgroundColor: Colors.red),
