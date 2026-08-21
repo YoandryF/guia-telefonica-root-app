@@ -434,18 +434,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // final contactosFiltrados = ref.watch(contactosFiltradosProvider);
 
     // Derivar estado del provider
-    final bool cargando = contactosAsync.isLoading && _contactosAcumulados.isEmpty;
-    final int totalContactos = contactosAsync.valueOrNull?.total ?? 0;
     final int filtrosActivosCount = _filtrosActivos;
+    // Mostrar spinner si está cargando Y (lista vacía O hay filtros activos que acaban de cambiar)
+    final bool cargando = contactosAsync.isLoading && (_contactosAcumulados.isEmpty || filtrosActivosCount > 0);
+    final int totalContactos = contactosAsync.valueOrNull?.total ?? 0;
 
     // Acumular contactos para scroll infinito
     contactosAsync.whenData((state) {
-      if (state.paginaActual > _ultimaPaginaCargada) {
-        // Nueva página disponible — acumular
+      // Siempre reemplazar en página 0 (nueva búsqueda o filtro aplicado)
+      // Acumular solo en páginas > 0 (scroll infinito)
+      final esPrimeraPagina = state.paginaActual == 0;
+      final esNuevaPagina   = state.paginaActual > _ultimaPaginaCargada;
+
+      if (esPrimeraPagina || esNuevaPagina) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             setState(() {
-              if (state.paginaActual == 0) {
+              if (esPrimeraPagina) {
+                // Reemplazar siempre — puede ser 0 contactos si el filtro no tiene resultados
                 _contactosAcumulados = List.from(state.contactos);
               } else {
                 _contactosAcumulados = [..._contactosAcumulados, ...state.contactos];
